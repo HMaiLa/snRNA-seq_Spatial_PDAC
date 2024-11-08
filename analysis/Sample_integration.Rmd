@@ -1,0 +1,151 @@
+---
+title: "Sample_integration"
+author: "Hue M. La"
+date: '2024-10-31'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = "hide", eval = T, fig.align="center")
+```
+
+# Libraries
+```{r}
+library(Seurat) 
+library(dplyr)
+library(ggplot2)
+```
+
+# DietSeurat
+```{r}
+sts.seurat <- readRDS("~/Projects/PDAC_STS_2024/output/objects_ML/sts.seurat.RDS")
+dim(sts.seurat) #115221
+DefaultAssay(sts.seurat) <- "RNA"
+sts.seurat <- Seurat::DietSeurat(sts.seurat, assays = "RNA", data = TRUE, counts = TRUE)
+colnames(sts.seurat[[]]) #check which columns to remove
+
+sts.seurat[["nCount_SCT"]] <- NULL
+sts.seurat[["nFeature_SCT"]] <- NULL
+sts.seurat[["SCT_snn_res.0.1"]] <- NULL
+sts.seurat[["SCT_snn_res.0.2"]] <- NULL
+sts.seurat[["SCT_snn_res.0.4"]] <- NULL
+sts.seurat[["SCT_snn_res.0.3"]] <- NULL
+sts.seurat[["seurat_clusters"]] <- NULL
+sts.seurat[["SCT_snn_res.0.5"]] <- NULL
+sts.seurat[["SCT_snn_res.0.6"]] <- NULL
+sts.seurat[["SCT_snn_res.0.7"]] <- NULL
+sts.seurat[["SCT_snn_res.0.8"]] <- NULL
+sts.seurat[["SCT_snn_res.0.9"]] <- NULL
+sts.seurat[["SCT_snn_res.1"]] <- NULL
+```
+
+# GLOBAL INTEGRATION - ALL CELLS
+## SCTransform v2
+```{r}
+sts.seurat <- SplitObject(sts.seurat, split.by = "Sample")
+
+for (i in names(sts.seurat)){
+  sts.seurat[[i]] <- SCTransform(sts.seurat[[i]],
+    vst.flavor = "v2",
+    method = "glmGamPoi",
+    verbose = TRUE
+    )
+}
+```
+
+## Simspec CSS integration - 'orig.ident'
+```{r}
+# Codes modified from Fernando
+# Merge and set common features 
+features.ls <- SelectIntegrationFeatures(object.list = sts.seurat, nfeatures = 2000) #default nfeatures
+
+sts.simspec_css.sample.sct <- merge(x = sts.seurat[[1]], y = sts.seurat[2:length(sts.seurat)], 
+                                  merge.data = TRUE)
+
+VariableFeatures(sts.simspec_css.sample.sct) <- features.ls
+
+# PCA 
+sts.simspec_css.sample.sct <- RunPCA(sts.simspec_css.sample.sct, verbose = TRUE, assay = "SCT") #default npcs = 50
+
+# Run CSS ----
+install.packages("devtools")
+devtools::install_github("quadbiolab/simspec")
+library(simspec)
+
+sts.simspec_css.sample.sct <-
+  simspec::cluster_sim_spectrum(
+    object = sts.simspec_css.sample.sct,
+    label_tag = "orig.ident", #original sample labels from pre-processing step
+    cluster_resolution = 0.4,
+    corr_method = "pearson",
+    spectrum_type = "corr_kernel"
+  )
+
+cat("Current reductions in object:", Reductions(sts.simspec_css.sample.sct)) # pca css
+# Current reductions in object: pca css
+
+# Reference codes from:  https://github.com/quadbio/simspec/blob/master/vignette/vignette.md
+sts.simspec_css.sample.sct <- RunUMAP(sts.simspec_css.sample.sct, reduction = "css", 
+                                   dims = 1:ncol(Embeddings(sts.simspec_css.sample.sct, "css")), #294
+                                   reduction.name="umap_css", reduction.key="UMAPCSS_")
+
+sts.simspec_css.sample.sct <- FindNeighbors(sts.simspec_css.sample.sct, reduction="css", 
+                                         dims = 1:ncol(Embeddings(sts.simspec_css.sample.sct, "css")))
+
+
+sts.simspec_css.sample.sct <- FindClusters(sts.simspec_css.sample.sct, algorithm = 3, resolution = c(0.8,0.9, 1.0, 1.1, 1.2))
+
+library(clustree)
+clustree::clustree(sts.simspec_css.sample.sct)d
+
+DimPlot(sts.simspec_css.sample.sct, raster = F, group.by = "SCT_snn_res.1.1", label = T) + DimPlot(sts.simspec_css.sample.sct, group.by = "cell_class",label = T, repel =T, raster = F)
+saveRDS(sts.simspec_css.sample.sct, file = "~/Projects/PDAC_STS_2024/output/objects_ML/sts.simspec_css.sample.sct.Aug24.RDS")
+
+Idents(sts.simspec_css.sample.sct) <- "SCT_snn_res.1.1" # this defines FRCs and correlate quite well with cell classes defined by non-integrated method
+sts.simspec_css.sample.sct$seurat_clusters <- NULL 
+sts.simspec_css.sample.sct$seurat_clusters <- sts.simspec_css.sample.sct$SCT_snn_res.1.1
+```
+
+## Annotation - Sample SCT -> 'orig.ident' CSS integration
+```{r}
+Idents(sts.simspec_css.sample.sct) <- "SCT_snn_res.1.1" #try to use the same resolution to confirm similar same class
+sts.simspec_css.sample.sct$seurat_clusters <- NULL 
+sts.simspec_css.sample.sct$seurat_clusters <- sts.simspec_css.sample.sct$SCT_snn_res.1.1
+
+clusters <- FetchData(sts.simspec_css.sample.sct, vars = c("Cell_Ids", "seurat_clusters"))
+
+clusters <-
+  clusters %>% dplyr::mutate(
+    simspec_cell_class = dplyr::case_when(
+      seurat_clusters %in% c("0","2","3","4","7","9","11","12","14","15","21","22","24","27","34","40","45") ~ "PDAC",
+      seurat_clusters %in% c("39") ~ "Tuft", #check
+      seurat_clusters %in% c("5", "33") ~ "Ductal_epithelial", #check
+      seurat_clusters %in% c("30") ~ "Acinar", #check
+      seurat_clusters %in% c("43","18","6","1") ~ "Malignant acinar", #check
+      seurat_clusters %in% c("46","20","8") ~ "T/NK", #check
+      seurat_clusters %in% c("10","13","29","47") ~ "CAFs", #check
+      seurat_clusters %in% c("19","44","37","38") ~ "PDA_OLGC", #check
+      seurat_clusters ==  "41" ~ "Mast", #check
+      seurat_clusters ==  "32" ~ "B", #check
+      seurat_clusters ==  "42" ~ "FRCs", #check
+      seurat_clusters == "35" ~ "Plasma",#check
+      seurat_clusters %in% c("16","17", "25", "31") ~ "Macrophages", #check
+      seurat_clusters ==  "28" ~ "Endothelial", 
+      seurat_clusters %in%  c("23", "26") ~ "Endocrine", 
+      seurat_clusters == "36"  ~ "Pericytes" #done
+      
+    )
+  )
+stopifnot(identical(colnames(sts.simspec_css.sample.sct),
+                    rownames(clusters)))
+
+
+sts.simspec_css.sample.sct <- AddMetaData(sts.simspec_css.sample.sct,
+                          metadata = clusters[, "simspec_cell_class"],
+                          col.name = "simspec_cell_class")
+
+DimPlot(sts.simspec_css.sample.sct,
+        group.by = "simspec_cell_class", raster = F, label = T) +
+  DimPlot(sts.simspec_css.sample.sct, raster = F, label = T, group.by = "seurat_clusters") + 
+  DimPlot(sts.simspec_css.sample.sct, raster = F, label = T, group.by = "cell_class") 
+```

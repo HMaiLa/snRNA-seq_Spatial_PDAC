@@ -1,0 +1,529 @@
+---
+title: "Malignant_analysis"
+author: "Mai La"
+date: "2024-10-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = "hide", eval = T, fig.align="center", dev=c('png', 'pdf'))
+options(repr.plot.width = 5, repr.plot.height = 4)
+```
+
+# Attach libraries
+```{r Packages}
+library(Seurat)
+library(schex)
+library(ggplot2)
+library(shiny)
+library(dplyr)
+library(patchwork)
+library(rmarkdown)
+library(openxlsx)
+library(infercnv)
+library(here)
+
+objects.path <- here("output/objects")
+data.path <- here("data/")
+```
+
+# Load object
+```{r}
+# Object was annotated using simspec integration approach on sample-based 
+sts.simspec.sct <- readRDS("~/projects/PDAC_non_malignant_cell_types/data/import.files/sts.simspec_css.sample.sct.Aug24.RDS")
+```
+
+# InferCNV run
+```{r}
+## Representative codes for inferCNV run
+sts_counts <- sts.simspec@assays$RNA@counts
+
+infercnv_obj = CreateInfercnvObject(raw_counts_matrix=as.matrix(sts_counts),
+                                    annotations_file= '../data/sample_annotation_P2992.tsv',
+                                    delim="\t",
+                                    gene_order_file="../data/refdata-gex-GRCh38-2020-A_genes/gene_positions.txt",
+                                    ref_group_names= c("Endothelial","Pericytes","T/NK")
+                                    ) 
+
+inferCNV.subclusters <- infercnv::run(infercnv_obj,
+cutoff = 0.1, 
+out_dir = "../data/P2992.out/",
+cluster_by_groups = T, 
+analysis_mode = 'subclusters',
+denoise = T, 
+HMM = T, 
+noise_logistic = TRUE,
+sd_amplifier = 3,
+BayesMaxPNormal = 0.3, 
+tumor_subcluster_pval=0.05, 
+leiden_resolution = 0.0035)
+
+# Plotting against WGS results from the same sample
+#https://genviz.org/module-03-genvisr/0003/05/01/cnFreq_GenVisR/
+library(stringr)
+library(GenVisR)
+
+# construct genomic boundaries from cytoGeno
+genomeBoundaries <- aggregate(chromEnd ~ chrom, data=cytoGeno[cytoGeno$genome=="hg38",], max)
+genomeBoundaries$chromStart <- 0
+colnames(genomeBoundaries) <- c("chromosome", "end", "start")
+
+# Import WGS results for P2992 
+wgs_2992 <- read.csv("../apgi_wgs_cnv/apgi_2992/APGI_2992__ICGC_0235_T.purple.segment.tsv", header = TRUE, sep = "")
+wgs_2992 <- wgs_2992 %>% dplyr::filter(germlineStatus %in% c("AMPLIFICATION","DIPLOID", "HET_DELETION",  "HOM_DELETION"))
+wgs.2992 <- wgs_2992 %>% dplyr::select(chromosome, start, end, refNormalisedCopyNumber)
+colnames(wgs.2992) <- c("chromosome","start","end","segmean")
+wgs.2992$sample <- "2992"
+wgs.2992 <- wgs.2992 %>% select(sample, everything())
+cnSpec(wgs.2992, y=genomeBoundaries)
+```
+
+# INTEGRATION
+##Diet Seurat
+```{r}
+# subset out rare samples: 1959-PDA_OLGC; 2185-clear cell carcinoma; 1971-Acinar cell carcinoma, 2153-Acinar cell carcinoma
+sts.malignant <- sts.simspec.sct %>% subset(subset = Patient_ID %in% c("1959","2185","1971","2153"), invert=T)
+
+# subset out the malignant
+sts.malignant <- sts.malignant %>% subset(subset = simspec_cell_class == "PDAC") 
+
+# subset out "PDAC" that didn't show changes in CNV from inferCNV analysis
+sts.malignant <- sts.malignant %>% subset(subset = Cell_Ids %in% non.malig, invert=T)
+
+# DietSeurat
+dim(sts.malignant) #  26788 x 53356
+DefaultAssay(sts.malignant) <- "RNA"
+sts.malignant <- Seurat::DietSeurat(sts.malignant, assays = "RNA", data = TRUE, counts = TRUE)
+colnames(sts.malignant[[]]) #check which columns to remove
+sts.malignant[["nCount_SCT"]] <- NULL
+sts.malignant[["nFeature_SCT"]] <- NULL
+sts.malignant[["seurat_clusters"]] <- NULL
+sts.malignant[["SCT_snn_res.0.8"]] <- NULL
+sts.malignant[["SCT_snn_res.0.9"]] <- NULL
+sts.malignant[["SCT_snn_res.1"]] <- NULL
+sts.malignant[["SCT_snn_res.1.1"]] <- NULL
+sts.malignant[["SCT_snn_res.1.2"]] <- NULL
+```
+
+## Normalised by SCTransform on individual sample
+```{r}
+sts.malignant <- SplitObject(sts.malignant, split.by = "Sample")
+
+for (i in names(sts.malignant)){
+  sts.malignant[[i]] <- SCTransform(sts.malignant[[i]],
+    vst.flavor = "v2",
+    method = "glmGamPoi",
+    verbose = TRUE
+    )
+}
+```
+
+## Simspec integration 
+```{r}
+# Merge and set common features 
+int.features.split <- SelectIntegrationFeatures(object.list = sts.malignant, nfeatures = 2000)
+sts.malignant.simspec <- merge(x = sts.malignant[[1]], y = sts.malignant[2:length(sts.malignant)], 
+                         merge.data = TRUE)
+VariableFeatures(sts.malignant.simspec) <- int.features.split
+
+# PCA 
+sts.malignant.simspec <- RunPCA(sts.malignant.simspec, verbose = TRUE, assay = "SCT",
+                                  npcs = 30) #default npcs = 50
+
+library(simspec)
+sts.malignant.simspec <-
+  simspec::cluster_sim_spectrum(
+    object = sts.malignant.simspec,
+    label_tag = "orig.ident", 
+    cluster_resolution = 0.4,
+    corr_method = "pearson",
+    spectrum_type = "corr_kernel"
+  )
+
+cat("Current reductions in object:", Reductions(sts.malignant.simspec)) 
+
+# Reference codes from:  https://doi.org/10.17632/3kthhpw2pd 
+sts.malignant.simspec <- RunUMAP(sts.malignant.simspec, reduction = "css", 
+                                   dims = 1:ncol(Embeddings(sts.malignant.simspec, "css")), 
+                                   reduction.name="umap_css", reduction.key="UMAPCSS_")
+
+sts.malignant.simspec <- FindNeighbors(sts.malignant.simspec, reduction="css", 
+                                         dims = 1:ncol(Embeddings(sts.malignant.simspec, "css")))
+
+sts.malignant.simspec <- FindClusters(sts.malignant.simspec, algorithm = 3, resolution = seq(0.1, 0.5, by = 0.1))
+
+
+library(clustree)
+clustree::clustree(sts.malignant.simspec) #stable res at 0.1, 0.2, 0.3, 0.5
+DimPlot(sts.malignant.simspec, group.by = "SCT_snn_res.0.1", label = T) 
+
+Idents(sts.malignant.simspec) <- "SCT_snn_res.0.1" #5clusters
+saveRDS(sts.malignant.simspec, file = here(object.path, "sts.malignant.simspec.Aug24.RDS"))
+```
+
+## DE analysis to define malignant programs (MPs) - Pseudobulk using edgeR
+```{r}
+#Ref: https://github.com/yunshun/HumanBreast10X/blob/main/RCode/NormTotal.R
+DefaultAssay(sts.malignant.simspec) <- "RNA"
+
+MP <- sts.malignant.simspec
+MP$seurat_clusters <- NULL
+MP$seurat_clusters <- MP$SCT_snn_res.0.1
+MP$seurat_clusters <- as.factor(as.numeric(as.character(MP$seurat_clusters)) + 1)
+ClusterSub <- as.factor(MP@meta.data$seurat_clusters) 
+PatClust <- paste(MP$ICGC_ID, ClusterSub, sep = "_Clst") 
+
+# Pseudobulk samples by aggregrating read counts for each genes per cluster-patient
+raw.counts <- as.matrix(MP@assays$RNA@counts)
+counts <- t(rowsum(t(raw.counts), group=PatClust))
+
+library(limma)
+library(edgeR)
+count.matrix <- DGEList(counts) 
+count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix)) 
+count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) 
+count.matrix$samples$group <- count.matrix$samples$Cluster
+count.matrix 
+
+ncls <- length(table(ClusterSub))
+N <- 1:ncls 
+ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% N] 
+keep <- filterByExpr(ClstSub, min.count=5, min.total.count=10) 
+ClstSub <- ClstSub[keep, , keep=F]
+ClstSub <- calcNormFactors(ClstSub) 
+ClstSub$samples$group
+
+plotMDS(ClstSub, pch = 16, col = pat.col[ClstSub$samples$group], main="")
+
+#Design matrix
+Cls <- as.factor(ClstSub$samples$Cluster)
+Pat <- factor(ClstSub$samples$Patient)
+design <- model.matrix(~ Cls + Pat)
+
+#Estimate NB dispersion & QL dispersion
+ClstSub <- estimateDisp(ClstSub, design = design)
+qfit <- glmQLFit(ClstSub, design)
+
+contr <- makeContrasts(
+    Cls1 = -(Cls2+Cls3+Cls4+Cls5+Cls6)/5, 
+    Cls2 = Cls2-(Cls3+Cls4+Cls5+Cls6)/5, 
+    Cls3 = Cls3-(Cls2+Cls4+Cls5+Cls6)/5, 
+    Cls4 = Cls4-(Cls2+Cls3+Cls5+Cls6)/5, 
+    Cls5 = Cls5-(Cls2+Cls3+Cls4+Cls6)/5, 
+    Cls6 = Cls6-(Cls2+Cls3+Cls4+Cls5)/5, 
+    levels=design)
+
+de.test <- list()
+for (i in 1:ncls) de.test[[i]] <- glmQLFTest(qfit, contrast = contr[,i])
+
+#log-CPM
+prior.count <- 1
+ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating cpm
+
+# Remove batch effect on log-CPM
+logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch=Pat, group = Cls) # for visualisation purposes only
+boxplot(as.data.frame(ClstSub.cpm),main="Original")
+boxplot(as.data.frame(logCPM_no_batch),main="Batch corrected")
+plotMDS(logCPM_no_batch, pch = 16, col = pat.col[ClstSub$samples$group], main="Pseudo-bulk samples")
+
+### Extracting data table ###
+filtered_clusters <- list()
+for (i in 1:6) {
+  cluster <- de.test[[i]]$table %>%
+    mutate(cluster = i, gene = rownames(.))
+  
+  # Store the filtered cluster in the list
+  filtered_clusters[[i]] <- cluster
+}
+
+MP.pseudobulk <- dplyr::bind_rows(filtered_clusters)
+```
+
+## Enrichment analysis
+```{r}
+# Ref codes modified from Fer's
+library("msigdbr")
+library("clusterProfiler")
+library("org.Hs.eg.db")
+Hallmark <- msigdbr(species = "Homo sapiens", category = "H")
+Hallmark.entrez <- dplyr::select(Hallmark, gs_name, entrez_gene)
+
+MP.pseudobulk <- read_csv("~/projects/PDAC_non_malignant_cell_types/output/Tables_Aug24/MP.pseudobulk_Aug24.csv")
+
+gene.symbols <- MP.pseudobulk$gene %>% unique()
+gene.entrez <- bitr(gene.symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db", drop = F)
+colnames(gene.entrez)[1] <- "gene"
+markers.ann <- left_join(MP.pseudobulk, gene.entrez, by = "gene")
+
+dgea.ls <- split(markers.ann, f=markers.ann$cluster)
+
+#focus on all up-regulated genes
+dgea.up.filtered <- purrr::map(dgea.ls, ~ dplyr::filter(., logFC > 0.4 & PValue < 0.05,!is.na(ENTREZID)))
+dgea.ls.up.entrez.id <- purrr::map(dgea.up.filtered, ~ dplyr::pull(., ENTREZID))
+
+universe <- bitr(gene.symbols,
+                 fromType = "SYMBOL",
+                 toType = "ENTREZID",
+                 OrgDb = "org.Hs.eg.db")
+
+hallmark <- compareCluster(
+  geneClusters = dgea.ls.up.entrez.id,
+  fun = "enricher",
+  minGSSize = 10,
+  maxGSSize = 500,
+  universe = universe$ENTREZID,
+  TERM2GENE = Hallmark.entrez)
+dotplot(hallmark, font.size = 12, showCategory = 5, title = "Hallmark | pseudobulk RNA assay|edgeR | logFC > 0.4")  + RotatedAxis() + scale_colour_gradient(low="coral3", high = "steelblue")
+```
+
+# NON-INTEGRATED - for visualisation
+```{r}
+sts.malignant <- SCTransform(sts.malignant, vst.flavor = "v2", 
+                                 method = "glmGamPoi", verbose = TRUE
+                                 )
+
+# DIMENTIONALITY REDUCTION
+sts.malignant <- RunPCA(sts.malignant, npcs = 50, verbose = FALSE, assay = "SCT")
+ElbowPlot(sts.malignant)
+
+DimPlot(sts.malignant, label = TRUE,
+        reduction = "pca", group.by = "Patient_ID") + NoLegend()
+
+sts.malignant <- RunUMAP(sts.malignant, reduction = "pca", dims = 1:50)
+
+# CLUSTERING
+sts.malignant <- FindNeighbors(sts.malignant, reduction = "pca", dims = 1:50)
+
+sts.malignant <- FindClusters(sts.malignant, algorithm = 3,  resolution = 1) # 
+
+# Decided on the resolution
+# Rationale for choosing algorithm 3: https://github.com/satijalab/seurat/issues/280; also based paper benchmarking the 2 
+DimPlot(sts.malignant, group.by = "ICGC_ID", cols = pat.color) 
+```
+
+## Using MP as cell state
+```{r}
+MP <- list()
+MP$MP1 <- MP.pseudobulk %>% dplyr::filter(cluster == "1", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
+MP$MP2 <- MP.pseudobulk %>% dplyr::filter(cluster == "2", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
+MP$MP3 <- MP.pseudobulk %>% dplyr::filter(cluster == "3", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
+MP$MP4 <- MP.pseudobulk %>% dplyr::filter(cluster == "4", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
+MP$MP5 <- MP.pseudobulk %>% dplyr::filter(cluster == "5", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
+MP$MP6 <- MP.pseudobulk %>% dplyr::filter(cluster == "6", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
+
+
+library(UCell)
+DefaultAssay(sts.malignant) <- "RNA"
+sts.malignant <- AddModuleScore_UCell(sts.malignant,
+                                      features = MP,
+                                      assay="RNA", slot = "data")
+MP.names <- paste0(names(MP),"_UCell")
+
+#col <- rev(brewer.pal(n =3, name = "RdBu"))
+FeaturePlot(sts.malignant,
+            features = MP.names,
+            max.cutoff = "q99", # q## indicates quantile
+            ncol = 3,
+            #cols = c("black","gold"),
+            cols = c("darkblue","gold","darkred"), #,"darkred"),#c("lightgrey","black"), #"#6A3D9A""darkblue"
+            keep.scale = "all")
+```
+
+# RARE MALIGNANT
+## Subset samples of interest
+```{r}
+rare <- subset(sts.simspec.sct, subset = Patient_ID %in% c("1959","2185","2207","2153","1971")) 
+# 1959 = Unidfferentiated carcinoma with osteoclast like giant cells
+# 2207 = undifferenitated anaplastic carcinoma
+# 2185 = clear cell carcinoma
+# 2153 1971 = acinar cell carcinoma
+```
+
+## DietSeurat
+```{r}
+dim(rare)
+DefaultAssay(rare) <- "RNA"
+rare <- DietSeurat(rare, assays = "RNA", data = TRUE, counts = TRUE)
+colnames(rare[[]]) #check which columns to remove
+
+rare[["nCount_SCT"]] <- NULL
+rare[["nFeature_SCT"]] <- NULL
+rare[["seurat_clusters"]] <- NULL
+rare[["SCT_snn_res.0.8"]] <- NULL
+rare[["SCT_snn_res.0.9"]] <- NULL
+rare[["SCT_snn_res.1"]] <- NULL
+rare[["SCT_snn_res.1.1"]] <- NULL
+rare[["SCT_snn_res.1.2"]] <- NULL
+
+GetAssayData(rare, slot = "data")
+stopifnot(identical(rare@assays$RNA@counts[1:5, 1:5],
+          rare@assays$RNA@data[1:5, 1:5]))
+```
+
+## Standard processing - normalise, dimentionality reduction, clustering
+```{r}
+# SCTRANFORM
+rare <- SCTransform(rare, vst.flavor = "v2", method = "glmGamPoi", verbose = TRUE)
+
+# DIMENTIONALITY REDUCTION
+rare <- RunPCA(rare, npcs = 50, verbose = FALSE, assay = "SCT")
+ElbowPlot(rare)
+
+DimPlot(rare, label = TRUE,
+        reduction = "pca", group.by = "Patient_ID") + NoLegend()
+
+rare <- RunUMAP(rare, reduction = "pca", dims = 1:50)
+
+# CLUSTERING
+rare <- FindNeighbors(rare, reduction = "pca", dims = 1:50)
+
+# Determine cluster stability
+rare <- FindClusters(rare, algorithm = 3,  resolution = seq(0.1,1, by = 0.1)) # SLM
+library(clustree)
+clustree::clustree(rare) # most stable at 0.1, 0.2, 0.4, 0.5
+saveRDS(rare, file= here(objects.path, "rareSamples.RDS")
+
+Idents(rare) <- "SCT_snn_res.0.3"
+rare$seurat_clusters <- NULL
+rare$seurat_clusters <- rare$SCT_snn_res.0.3
+DimPlot(rare, label = T) + NoLegend() + DimPlot(rare, group.by = "simspec_cell_class", label = T)
+```
+
+```{r}
+malignant.col <- c( "#E074C5","#D8C863","#DC7C74","#7FD3D7","#8A7AD9" )
+malignant.color <- setNames(object = malignant.col, nm=c("1959_PDA_OLGC", "1971_Malignant acinar", "2153_Malignant acinar", "2185_PDAC", "2207_Malignant:PDAC"))
+```
+
+## Transcriptomic differences between different malignant 
+```{r}
+malignant.subset <- subset(rare, subset = simspec_cell_class %in% c("Malignant acinar", "PDA_OLGC","PDAC"))
+malignant.subset$sample_histo <-  paste(malignant.subset$Patient_ID, malignant.subset$simspec_cell_class, sep = "_")
+Idents(malignant.subset) <- "sample_histo"
+
+malignant.subset <- subset(malignant.subset, subset = sample_histo %in% c("1959_PDA_OLGC", "1971_Malignant acinar", "2153_Malignant acinar", "2185_PDAC", "2207_PDAC"))
+malignant.markers <- FindAllMarkers(malignant.subset, assay = "SCT", logfc.threshold = 0.25, min.pct = 0.2, only.pos = T)
+
+malignant.markers %>%
+    group_by(cluster) %>%
+    top_n(n = 20, wt = avg_log2FC) -> top10
+DoHeatmap(malignant.subset, features = top10$gene, group.colors = malignant.color) + 
+  scale_fill_gradientn(colors = c("steelblue", "white", "darkred"))
+```
+
+## Enrichment analysis 
+```{r}
+library("msigdbr")
+library("clusterProfiler")
+library("org.Hs.eg.db")
+Hallmark <- msigdbr(species = "Homo sapiens", category = "H")
+Hallmark.entrez <- dplyr::select(Hallmark, gs_name, entrez_gene)
+
+gene.symbols <- malignant.markers$gene %>% unique() 
+gene.entrez <- bitr(gene.symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db", drop = F)
+colnames(gene.entrez)[1] <- "gene"
+markers.ann <- left_join(malignant.markers, gene.entrez, by = "gene")
+
+dgea.ls <- split(markers.ann, f=markers.ann$cluster)
+
+#focus on up-regulated genes
+dgea.up.filtered <- purrr::map(dgea.ls, ~ dplyr::filter(., avg_log2FC >= 0.2, p_val_adj < 0.001,!is.na(ENTREZID)))
+dgea.ls.up.entrez.id <- purrr::map(dgea.up.filtered, ~ dplyr::pull(., ENTREZID)) #pulling a gene list
+
+universe <- bitr(gene.symbols,
+                 fromType = "SYMBOL",
+                 toType = "ENTREZID",
+                 OrgDb = "org.Hs.eg.db")
+
+hallmark <- compareCluster(
+  geneClusters = dgea.ls.up.entrez.id,
+  fun = "enricher",
+  minGSSize = 8,
+  maxGSSize = 500,
+  universe = universe$ENTREZID,
+  TERM2GENE = Hallmark.entrez)
+dotplot(hallmark, showCategory = 6, title="Hallmark | logFC > 0.2, p_val_adj < 0.001")  + RotatedAxis() + scale_colour_gradient(low="coral3", high = "steelblue")
+```
+
+# NON-MALIGNANT 
+## DietSeurat
+```{r}
+# filter out malignant cells
+sts.non.malignant <- subset(sts.simspec.sct, subset = simspec_cell_class %in% c("Malignant acinar","PDA_OLGC","PDAC"), invert = T) 
+
+# filter out rare malignant samples
+sts.non.malignant <- subset(sts.non.malignant, subset = Patient_ID %in% c("1959","2185"), invert = T) #35493 cells
+
+# DietSeurat
+dim(sts.non.malignant)
+DefaultAssay(sts.non.malignant) <- "RNA"
+sts.non.malignant <- DietSeurat(sts.non.malignant, assays = "RNA", data = TRUE, counts = TRUE)
+colnames(sts.non.malignant[[]]) #check which columns to remove
+
+sts.non.malignant[["nCount_SCT"]] <- NULL
+sts.non.malignant[["nFeature_SCT"]] <- NULL
+sts.non.malignant[["SCT_snn_res.0.8"]] <- NULL
+sts.non.malignant[["SCT_snn_res.0.9"]] <- NULL
+sts.non.malignant[["SCT_snn_res.1"]] <- NULL
+sts.non.malignant[["SCT_snn_res.1.1"]] <- NULL
+sts.non.malignant[["SCT_snn_res.1.2"]] <- NULL
+```
+
+## Normalised by SCTransform v2 as a whole -> PCA 
+```{r}
+sts.non.malignant <- SCTransform(sts.non.malignant, vst.flavor = "v2", 
+                                 method = "glmGamPoi", verbose = TRUE
+                                 )
+
+# DIMENTIONALITY REDUCTION
+sts.non.malignant <- RunPCA(sts.non.malignant, npcs = 50, verbose = FALSE, assay = "SCT")
+ElbowPlot(sts.non.malignant)
+
+DimPlot(sts.non.malignant, label = TRUE,
+        reduction = "pca", group.by = "Patient_ID") + NoLegend()
+
+sts.non.malignant <- RunUMAP(sts.non.malignant, reduction = "pca", dims = 1:50)
+
+# CLUSTERING
+sts.non.malignant <- FindNeighbors(sts.non.malignant, reduction = "pca", dims = 1:50)
+sts.non.malignant <- FindClusters(sts.non.malignant, algorithm = 3,  resolution = c(0.5,0.6,0.7,0.8)) # 
+
+library(clustree)
+clustree::clustree(sts.non.malignant)  
+
+# Decided on the resolution
+# Rationale for choosing algorithm 3: https://github.com/satijalab/seurat/issues/280; also based paper benchmarking the 2 
+Idents(sts.non.malignant) <- "SCT_snn_res.0.7" 
+DimPlot(sts.non.malignant, group.by = "simspec_cell_class", label = T, repel = T) +
+  DimPlot(sts.non.malignant, group.by = "cell_class", label = T, repel = T) +
+  DimPlot(sts.non.malignant, label = T)
+```
+
+## Cell assignment 
+```{r}
+metadata <- sts.non.malignant@meta.data %>% as.data.frame() #Creating a data frame called metadata
+metadata$S_CB <- rownames(metadata)#Assigning S_CB as a new column (CB=cell barcode)
+metadata %>% mutate(Lv.1.Anno = case_when(SCT_snn_res.0.7 %in% c("1","19","17","20","27","28") ~ "Myeloid", #check
+                                          SCT_snn_res.0.7 %in% c("0","3","25") ~ "CAFs", #check
+                                          SCT_snn_res.0.7 == "14" ~ "Pericytes", #check
+                                          SCT_snn_res.0.7 == "24" ~ "FRCs", #check
+                                          SCT_snn_res.0.7 == "8" ~ "Endothelial", #check
+                                          SCT_snn_res.0.7 == "23" ~ "Mast", #check
+                                          SCT_snn_res.0.7 == "15" ~ "Plasma",#check
+                                          SCT_snn_res.0.7 == "21" ~ "Tuft", #check
+                                          SCT_snn_res.0.7 %in% c("4","5") ~ "Ductal epithelial", #check
+                                          SCT_snn_res.0.7 == "18" ~ "Ductal MUC5B+",#check
+                                          SCT_snn_res.0.7 == "9" ~ "Acinar",
+                                          SCT_snn_res.0.7 %in% c("6","7","10") ~ "Endocrine",
+                                          SCT_snn_res.0.7 %in% c("2","11","12","16","22","26") ~ "Lymphoid", 
+                                          SCT_snn_res.0.7 == "29" ~ "Schwann",
+                                          SCT_snn_res.0.7 == "30" ~ "FDCs",
+                                          SCT_snn_res.0.7 == "13" ~ "B",
+                                          SCT_snn_res.0.7 == "31" ~ "B:GC")) -> metadata
+                                          
+metadata %>% group_by(Lv.1.Anno) %>% dplyr::count() %>% print(n=51)
+Lv.1.Anno <- metadata$Lv.1.Anno
+names(Lv.1.Anno) <- metadata$S_CB
+sts.non.malignant <- AddMetaData(object = sts.non.malignant, metadata = Lv.1.Anno, col.name = "Lv.1.Anno")
+DimPlot(sts.non.malignant, group.by = "Lv.1.Anno") + DimPlot(sts.non.malignant, group.by = "cell_class")
+saveRDS(sts.non.malignant, file = here(objects.path, "sts.nonmalignant.RDS"))
+```
