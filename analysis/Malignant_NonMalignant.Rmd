@@ -381,7 +381,7 @@ rare <- FindNeighbors(rare, reduction = "pca", dims = 1:50)
 rare <- FindClusters(rare, algorithm = 3,  resolution = seq(0.1,1, by = 0.1)) # SLM
 library(clustree)
 clustree::clustree(rare) # most stable at 0.1, 0.2, 0.4, 0.5
-saveRDS(rare, file= here(objects.path, "rareSamples.RDS")
+saveRDS(rare, file= here(objects.path, "rareSamples.RDS"))
 
 Idents(rare) <- "SCT_snn_res.0.3"
 rare$seurat_clusters <- NULL

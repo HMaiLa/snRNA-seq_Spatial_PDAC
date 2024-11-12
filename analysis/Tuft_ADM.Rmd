@@ -125,7 +125,7 @@ tuft.cnv <- read_csv("~/projects/PDAC_non_malignant_cell_types/data/import.files
 names(tuft.cnv)[1] <- "Barcode"
 kras.mut <- tuft.cnv %>% dplyr::select("Barcode","chr12_25245351_G","chr5_175478615_A")
 
-metadata <- tuft.merged@meta.data %>% as.data.frame() #Creating a data frame called metadata
+metadata <- tuft.merged@meta.data %>% as.data.frame()
 metadata <- left_join(metadata, kras.mut, "Barcode" )
 
 metadata %>% group_by(Patient_ID) %>% count(chr12_25245351_G)
@@ -210,28 +210,18 @@ ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating 
 
 # Remove batch effect on log-CPM
 logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch=Pat, group = Cls) # for visualisation purposes only
-#boxplot(as.data.frame(ClstSub.cpm),main="Original")
-#boxplot(as.data.frame(logCPM_no_batch),main="Batch corrected")
 plotMDS(logCPM_no_batch, pch = 16, col = ADM.col[ClstSub$samples$group], main="Pseudo-bulk samples")
 
 ### Extracting data table ###
-cluster1 <- ctest[[1]]$table %>% mutate(cluster = 1)
-cluster1$gene <- rownames(cluster1)
-c1 <- dplyr::filter(cluster1, abs(logFC) >= 1, PValue < 0.05) # to filter out genes
-cluster2 <- ctest[[2]]$table %>% mutate(cluster = 2)
-cluster2$gene <- rownames(cluster2)
-c2 <- dplyr::filter(cluster2, abs(logFC) >= 1, PValue < 0.05) 
-cluster3 <- ctest[[3]]$table %>% mutate(cluster = 3)
-cluster3$gene <- rownames(cluster3)
-c3 <- dplyr::filter(cluster3, abs(logFC) >= 1, PValue < 0.05) 
-cluster4 <- ctest[[4]]$table %>% mutate(cluster = 4)
-cluster4$gene <- rownames(cluster4)
-c4 <- dplyr::filter(cluster4, abs(logFC) >= 1, PValue < 0.05) 
-cluster5 <- ctest[[5]]$table %>% mutate(cluster = 5)
-cluster5$gene <- rownames(cluster5)
-c5 <- dplyr::filter(cluster5, abs(logFC) >= 1, PValue < 0.05) 
+filtered_clusters <- list()
 
-adm.cellnames.pseudobulk <- bind_rows(cluster1, cluster2, cluster3, cluster4, cluster5)
+# Loop over the clusters
+for (i in 1:5) {
+  cluster <- ctest[[i]]$table %>% mutate(cluster = i)
+  cluster$gene <- rownames(cluster)
+  filtered_clusters[[i]] <- dplyr::filter(cluster, abs(logFC) >= 1, PValue < 0.05)
+}
+
 adm.cellnames.pseudobulk %>% mutate(cell_names = case_when(
                                          cluster == "1" ~ "Acinar",
                                          cluster == "2" ~ "Acinar-Ductal",
@@ -268,10 +258,9 @@ saveRDS(ADM.Pat, file=here(objects.path, "ADM.Pat.RDS"))
 ```{r}
 # Fig2a
 DefaultAssay(ADM) <- "RNA"
-VlnPlot(ADM, features = c("CPB1","CPA1","REG1A",'EGF',#'CXCL2', #"MECOM","OLFM4",
-                          "CFTR",'SLC4A4', #"DCDC2",
+VlnPlot(ADM, features = c("CPB1","CPA1","REG1A",'EGF',
+                          "CFTR",'SLC4A4',
                           "MUC5B",'MUC6', 
-                          #"BMX","SH2D6",
                           "TRPM5","AVIL","POU2F3",'BMX'), cols = ADM.color, pt.size = 0, group.by = "Lv.2.Anno")
 
 # Sup Fig2a
@@ -288,15 +277,12 @@ ADM.Pat$Lv.2.Anno <- factor(ADM.Pat$Lv.2.Anno, levels = c("Acinar", "Acinar-Duct
 Idents(ADM.Pat) <- "Lv.2.Anno"
 
 DefaultAssay(ADM.Pat)
-DotPlot(ADM.Pat, features = features) + RotatedAxis() + scale_color_gradient2(low="darkblue", mid="white", high="darkred") +labs(title="Expression of marker genes derived from our previous analysis")
+DotPlot(ADM.Pat, features = features) + RotatedAxis() + scale_color_gradient2(low="darkblue", mid="white", high="darkred")
 
 # Fig 2g
 genes <- c("MDK","IL15","IL19",
-           "IL17RB","IL13RA1","IL6R", #"IL27RA","IL17RE",
-           #"VEGFA","FGF12",#"PTPRC", # only specific to P2221
-           "HCK",
-           "PVR",#"NECTIN1","NECTIN2","NECTIN4",
-           "LGALS3","LGALS4","LGALS9")
+           "IL17RB","IL13RA1","IL6R","HCK",
+           "PVR", "LGALS3","LGALS4","LGALS9")
 
 Idents(ADM) <- "Lv.2.Anno"
 DefaultAssay(ADM) <- "RNA"

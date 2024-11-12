@@ -1,0 +1,206 @@
+
+# Prepare environment
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                       echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+# Packages
+```{r}
+library(Seurat)
+library(schex)
+library(ggplot2)
+library(shiny)
+library(dplyr)
+library(patchwork)
+library(rmarkdown)
+library(openxlsx)
+library(here)
+library(SingleR)
+```
+
+# Load sts.non.malignant object
+```{r}
+sts.nonmalignant <- readRDS("../sts.nonmalignant.RDS")
+
+# Set up & overview
+stromal.col <- c("#90ADD1","#E76356","#92A36F","#DD8B64","#E37BB7") #,"#6A3D9A") 
+stromal.color <- setNames(object = stromal.col, nm=c("CAFs","FDCs","FRCs","Pericytes","Schwann")) #,"vSMC"))
+
+pat.col <- c("#6DE8B7","#D741E1","#B4E1CF","#DEB8E0","#DD4A8C","#7F9F32","#C3EAB4" ,"#7B67E0" ,"#D8E746" ,"#CEE982" ,"#DE73DA" ,"#92A36F" ,"#67C0D8" ,"#E1A497" ,"#E76356" ,"#62A4DB", "#D79655" ,"#8966AA", "#9899E8" ,"#6EE9E7","#E4C751","#E7E3DA" ,"#E08FC1" )  
+pat.color <- setNames(object = pat.col, nm=c("ICGC_0017", "ICGC_0020", "ICGC_0021", "ICGC_0026", "ICGC_0033", "ICGC_0034", "ICGC_0043", "ICGC_0051", "ICGC_0053","ICGC_0061", "ICGC_0066", "ICGC_0067", "ICGC_0075", "ICGC_0087", "ICGC_0103","ICGC_0105", "ICGC_0115", "ICGC_0203", "ICGC_0215", "ICGC_0235", "ICGC_0304", "ICGC_0391", "ICGC_0415"))
+```
+
+# STROMAL CLASSES
+```{r eval=FALSE}
+stromal <- sts.nonmalignant %>% subset(#subset = Patient %in% sample.high.fib & 
+                             Lv.2.Anno %in% c("CAFs","Pericytes", "FRCs", "Schwann","FDCs"))
+```
+
+## DE analysis by pseudobulk, comparing different class of stromal fibroblasts
+### Stromal subsets
+```{r echo=TRUE, include=FALSE}
+#Ref: https://github.com/yunshun/HumanBreast10X/blob/main/RCode/NormTotal.R
+stromal <- stromal.subsets
+DefaultAssay(stromal) <- "RNA"
+
+# Converting cluster name into numerical
+Idents(stromal) <- "Lv.2.Anno"
+stromal@meta.data$Lv.2.Anno <- as.factor(stromal@meta.data$Lv.2.Anno)
+print(levels(stromal@meta.data$Lv.2.Anno))
+levels(stromal@meta.data$Lv.2.Anno) <- 1:length(levels(stromal@meta.data$Lv.2.Anno))
+print(1:length(levels(stromal$Lv.2.Anno)))
+ClusterSub <- as.factor(stromal@meta.data$Lv.2.Anno) 
+
+PatClust <- paste(stromal$ICGC_ID, ClusterSub, sep = "_Clst")
+counts <- stromal@assays$RNA@counts
+counts <- as.matrix(counts)
+counts <- t(rowsum(t(counts), group=PatClust))
+
+library(limma)
+library(edgeR)
+count.matrix <- DGEList(counts) 
+count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix)) 
+count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) 
+count.matrix$samples$group <- count.matrix$samples$Cluster
+count.matrix 
+
+ncls <- length(table(ClusterSub))
+N <- 1:ncls 
+ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% N] 
+keep <- filterByExpr(ClstSub, min.count=5, min.total.count=10) 
+ClstSub <- ClstSub[keep, , keep=F]
+ClstSub <- calcNormFactors(ClstSub) 
+ClstSub$samples$group
+
+plotMDS(ClstSub, pch = 16, col = stromal.color[ClstSub$samples$group], main="")
+
+#Design matrix
+Cls <- as.factor(ClstSub$samples$Cluster)
+Pat <- factor(ClstSub$samples$Patient)
+design <- model.matrix(~ Cls + Pat)
+
+#Estimate NB dispersion & QL dispersion
+ClstSub <- estimateDisp(ClstSub, design = design)
+qfit <- glmQLFit(ClstSub, design)
+
+contr <- makeContrasts(
+    Cls1 = -(Cls2+Cls3+Cls4+Cls5)/4,
+    Cls2 = Cls2-(Cls3+Cls4+Cls5)/4,
+    Cls3 = Cls3-(Cls2+Cls4+Cls5)/4,
+    Cls4 = Cls4-(Cls2+Cls3+Cls5)/4,
+    Cls5 = Cls5-(Cls2+Cls3+Cls4)/4,
+    levels=design)
+
+de <- list()
+for (i in 1:ncls) de[[i]] <- glmQLFTest(qfit, contrast = contr[,i])
+
+#log-CPM
+prior.count <- 1
+ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating cpm
+
+# Remove batch effect on log-CPM
+# Ref: https://rdrr.io/github/richierocks/limma2/man/removeBatchEffect.html
+logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch = Pat, group = Cls) # following example on ?removeBatchEffect in R
+boxplot(as.data.frame(ClstSub.cpm),main="Original")
+boxplot(as.data.frame(logCPM_no_batch),main="Batch corrected")
+plotMDS(logCPM_no_batch, pch = 16, col = stromal.col[ClstSub$samples$group], main="Pseudo-bulk samples")
+
+### Extracting data table ###
+all.stromal.pseudobulk <- lapply(1:5, function(i) {
+  cluster <- de[[i]]$table %>% mutate(cluster = i)
+  cluster$gene <- rownames(cluster)
+  return(cluster)
+}) %>% bind_rows()
+
+all.stromal.pseudobulk %>% mutate(cell_names = case_when(cluster == "1" ~ "CAFs",
+                                                     cluster == "2" ~ "FDCs",
+                                                     cluster == "3" ~ "FRCs",
+                                                     cluster == "4" ~ "Pericytes",
+                                                     cluster == "5" ~ "Schwann")) -> all.stromal.pseudobulk
+write.csv(all.stromal.pseudobulk, file = "../Supplmentary_Table_4.csv", row.names = F)
+
+# Markers to plot
+top <- 25
+pseudoMarkers <- list()
+for (i in 1:ncls){ # incooperate p-value & FC 
+    ord <- order(de[[i]]$table$PValue, decreasing=FALSE)
+    upreg <- de[[i]]$table$logFC > 0
+    pseudoMarkers[[i]] <- rownames(ClstSub)[ord[upreg][1:top]]
+}
+Markers <- unlist(pseudoMarkers)
+Markers <- Markers[!duplicated(Markers)]
+
+# Heatmap anno
+anno <- data.frame(Cluster=paste0("Cluster", Cls), Patient=Pat)
+rownames(anno) <- colnames(ClstSub.cpm)
+anno %>% mutate(cell_names = case_when(Cluster == "Cluster1" ~ "CAFs",
+                                        Cluster == "Cluster2"~ "FDCs",
+                                        Cluster == "Cluster3" ~ "FRCs",
+                                       Cluster == "Cluster4" ~ "Pericytes",
+                                        TRUE ~ "Schwann")) -> anno #adding cell_names 
+anno$Cluster <- NULL
+ann_colors <-list(cell_names=stromal.col, Patient = pat.col)
+names(ann_colors$cell_names) <- paste0(c("CAFs","FDCs","FRCs","Pericytes","Schwann"))
+names(ann_colors$Patient) <- paste0(c("ICGC_0017", "ICGC_0020", "ICGC_0021", "ICGC_0026", "ICGC_0033", "ICGC_0034", "ICGC_0043", "ICGC_0051", "ICGC_0053", "ICGC_0061", "ICGC_0066", "ICGC_0067", "ICGC_0075", "ICGC_0087", "ICGC_0103", "ICGC_0105", "ICGC_0115", "ICGC_0203", "ICGC_0215", "ICGC_0235", "ICGC_0304", "ICGC_0391", "ICGC_0415"))
+
+library(pheatmap)
+mat <- t(scale(t(logCPM_no_batch[Markers, ])))
+pheatmap::pheatmap(mat, color=colorRampPalette(c("steelblue","white","darkred"))(100), border_color="NA",
+    breaks=seq(-2,2,length.out=101), cluster_cols=TRUE, scale="none", fontsize_row=10, 
+    show_colnames=FALSE, treeheight_row=70, treeheight_col=70, cutree_cols=5,
+    clustering_method="ward.D2", annotation_col=anno, annotation_colors=ann_colors)
+
+# Figure 3b
+toplot <- c('F13A1',"COL11A1",'COL10A1','SLC24A2','ITGA11','LEF1','POSTN',
+            'IL1R1','CCDC80','PTGIS','PDPN','IGF1','TNFSF14','PLA2G2A',"KCNIP1","MEDAG",
+            'RNF152','TRPC6','CD36','GPR20','GJC1','SEMA5B',
+            'ZNF536','SOX10','CDH19','NRXN1','CHL1','ERBB3', 
+            'CR1','CR2','SLC1A2','RGS9','FDCSP','LTF','NOL4')
+
+library(pheatmap)
+mat <- t(scale(t(logCPM_no_batch[toplot, ])))
+pheatmap::pheatmap(mat, color=colorRampPalette(c("steelblue","white","darkred"))(100), border_color="NA",
+    breaks=seq(-2,2,length.out=101), cluster_cols=TRUE, scale="none", fontsize_row=10, 
+    show_colnames=FALSE, treeheight_row=70, treeheight_col=70, cutree_cols=5,
+    clustering_method="ward.D2", annotation_col=anno, annotation_colors=ann_colors)
+
+# Figure 3a 
+Idents(stromal) <- "Lv.1.Anno"
+VlnPlot(stromal, features = c("FN1", "COL1A2","COL6A3","CALD1"),
+                         cols = stromal.color, ncol= 4, pt.size = 0)
+```
+
+## ORA
+```{r}
+library("msigdbr")
+library("clusterProfiler")
+library("org.Hs.eg.db")
+Hallmark <- msigdbr(species = "Homo sapiens", category = "H")
+Hallmark.entrez <- dplyr::select(Hallmark, gs_name, entrez_gene)
+
+gene.symbols <- stromal_subsets_pseudobulk$gene %>% unique() 
+gene.entrez <- bitr(gene.symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db", drop = F)
+colnames(gene.entrez)[1] <- "gene"
+markers.ann <- left_join(stromal_subsets_pseudobulk, gene.entrez, by = "gene")
+
+dgea.ls <- split(markers.ann, f=markers.ann$cell_names)
+
+#focus on all up-regulated genes
+dgea.up.filtered <- purrr::map(dgea.ls, ~ dplyr::filter(., logFC > 1.5, PValue < 0.05, !is.na(ENTREZID)))
+dgea.ls.up.entrez.id <- purrr::map(dgea.up.filtered, ~ dplyr::pull(., ENTREZID))
+
+universe <- bitr(gene.symbols,
+                 fromType = "SYMBOL",
+                 toType = "ENTREZID",
+                 OrgDb = "org.Hs.eg.db")
+
+hallmark <- compareCluster(
+  geneClusters = dgea.ls.up.entrez.id,
+  fun = "enricher",
+  minGSSize = 10,
+  maxGSSize = 500,
+  universe = universe$ENTREZID,
+  TERM2GENE = Hallmark.entrez)
+dotplot(hallmark, font.size = 12, showCategory =6, title = "Hallmark | pseudobulk RNA assay | logFC > 1.5")  + RotatedAxis() + scale_colour_gradient(low="midnightblue", high = "grey") 
+```
