@@ -1,0 +1,172 @@
+# Packages
+```{r}
+library(Seurat)
+library(schex)
+library(ggplot2)
+library(shiny)
+library(dplyr)
+library(patchwork)
+library(rmarkdown)
+library(openxlsx)
+library(here)
+library(SingleR)
+```
+
+# Load sts.non.malignant object
+```{r}
+sts.non.malignant <- readRDS("../sts.nonmalignant.RDS")
+set.seed(1122)
+fib.col <- distinctColorPalette(5)
+fib.col <- c("#E09470","#A4D7C6","#BAA3D3","#DCC179") #,"#C05BD1")
+fib.color <- setNames(object = fib.col, nm=c("CAFs_MYO","CAFs_CXCL14+", "CAFs_NRT","Vascular smooth muscle")) 
+```
+
+# PC analysis to verify FRC identity
+```{r}
+fib <- sts.non.malignant %>% subset(subset = Lv.1.Anno %in% c("CAFs", "Schwann","Pericytes", "FRCs","FDCs"))
+
+Idents(fib) <- "Lv.1.Anno"
+DimHeatmap(sts.non.malignant, dims = 12, cells=500, balanced = T) # PC = 12
+DimHeatmap(fib, dims = 12, cells=500, balanced = T, raster = F, nfeatures = 40) # PC = 12
+
+DimPlot(fib,
+        label = TRUE,
+        reduction = "pca", cols = stromal.color,
+        group.by = "Lv.1.Anno",
+        dim= c(1, 12)) + NoLegend() # PC = 2 defined CAFs
+
+DimPlot(fib,
+        label = TRUE,
+        reduction = "pca",
+        group.by = "Patient_ID",
+        dim= c(1, 12)) + NoLegend() # PC = 2 defined CAFs
+
+DimHeatmap(sts.non.malignant, dims = 1:12, cells=500, balanced = T) # PC = 12
+
+```
+
+## Transcriptome differences
+```{r}
+#Ref: https://github.com/yunshun/HumanBreast10X/blob/main/RCode/NormTotal.R
+# this is to make sure we compare CAFs vs FRCs
+fib <- stromal.subsets %>% subset(subset = Lv.3.Anno %in% c("Vascular smooth muscle", "unassigned"), invert=T)
+DefaultAssay(fib) <- "RNA"
+
+# Converting cluster name into numerical
+Idents(fib) <- "Lv.2.Anno"
+fib@meta.data$Lv.2.Anno <- as.factor(fib@meta.data$Lv.2.Anno)
+print(levels(fib@meta.data$Lv.2.Anno))
+levels(fib@meta.data$Lv.2.Anno) <- 1:length(levels(fib@meta.data$Lv.2.Anno))
+print(1:length(levels(fib$Lv.2.Anno)))
+ClusterSub <- as.factor(fib@meta.data$Lv.2.Anno) 
+
+PatClust <- paste(fib$Patient_ID, ClusterSub, sep = "_Clst") #labelling each cell with Sample#_Cls#
+counts <- fib@assays$RNA@counts #dgCMatrix
+counts <- as.matrix(counts)
+counts <- t(rowsum(t(counts), group=PatClust))
+
+library(limma)
+library(edgeR)
+count.matrix <- DGEList(counts) 
+count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix)) #adding a new column, named Patient 
+count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) #adding a new column, named Cluster
+count.matrix$samples$group <- count.matrix$samples$Cluster
+count.matrix #count matrix
+
+# there are 5 main cell classes: CAFs = 1; FRCs = 3
+ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% c("1","3")]  # the CAFs here are all CAFs for downstream analysis, without ambiguous cells
+keep <- filterByExpr(ClstSub, min.count=5, min.total.count=10) #min=10, min.total.count=20 # will use #5 to minimise false positive 
+ClstSub <- ClstSub[keep, , keep=F]
+ClstSub <- calcNormFactors(ClstSub) # to calculate normalisation factors to a algin columns of a count matrix
+ClstSub$samples$group
+
+fib.col <- c("#90ADD1", "#92A36F")
+plotMDS(ClstSub, pch = 16, col = fib.col[ClstSub$samples$group], main="")
+
+#Design matrix
+Cls <- as.factor(ClstSub$samples$Cluster)
+Pat <- factor(ClstSub$samples$Patient)
+design <- model.matrix(~ Cls + Pat)
+
+#Estimate NB dispersion & QL dispersion
+ClstSub <- estimateDisp(ClstSub, design = design)
+qfit <- glmQLFit(ClstSub, design)
+
+contr <- makeContrasts(
+    Cls1 = -Cls3,
+    Cls3 = Cls3,
+    levels=design)
+
+ctest1 <- glmQLFTest(qfit, contrast=contr[,1]) #column 1 corresponded to cluster1 = CAFs
+ctest3 <- glmQLFTest(qfit, contrast=contr[,2])
+
+#log-CPM
+prior.count <- 1
+ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating cpm
+
+# Remove batch effect on log-CPM
+# Ref: https://rdrr.io/github/richierocks/limma2/man/removeBatchEffect.html
+logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch = Pat, group = Cls) # following example on ?removeBatchEffect in R
+
+### Extracting data table ###
+cluster3 <- ctest3$table %>% mutate(cluster = 3)
+cluster3$gene <- rownames(cluster3)
+FRCs.deg.all <- cluster3
+```
+
+## Enhanced volcano 
+```{r}
+# features to plot
+features <- c("CXCL2","PLA2G2A","HAS1","MEDAG", "IGFBP6","CXCL3","CCL2","IL6R","IL6ST","PI16","CSF1","IL1R1","IL1RAP","VCAM1",
+              "C3","FGF7","CCDC80","PIM1","IGF1","MYC","GPRC5A", #iCAFs
+              "LEF1","MMP11","GALNTL6","CSMD1","ZNF365","APOD", "KSR2", #FIB
+              "TNFSF14","ICAM1","IL1RL1","CD34","COL11A1","TWIST1","COL10A1","ITGA11")
+
+library(EnhancedVolcano)
+EnhancedVolcano(FRCs.deg.all, x="logFC", y="PValue",
+    lab = FRCs.deg.all$gene,
+    title = "Differentially expressed genes in fibroblastic reticular cells (FRCs)",
+    selectLab = features,
+    FCcutoff = 1.25, # Reduced cut off for due to small differences 
+    pCutoff = 0.05,
+    pointSize = 4.0,
+    labSize = 5.0,
+    drawConnectors = TRUE,
+    col = c("black","black","black","coral3"),
+    #colAlpha = 1,
+    widthConnectors = 0.5)
+```
+
+## GSEA analysis
+```{r}
+library("tidyr")
+library("msigdbr")
+library("clusterProfiler")
+library("org.Hs.eg.db")
+library("ReactomePA")
+frc <- FRCs_vsCAFs_deg %>% dplyr::arrange(desc(logFC))
+frc <- FRCs.deg.all %>% dplyr::arrange(desc(logFC))
+geneList <- frc$logFC # sort according to FC
+names(geneList) <- frc$gene # Extract vector of gene symbol
+
+# GSEA use ensemble ID
+gene.symbols <- frc$gene
+gene.entrez <- bitr(gene.symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db", drop = F)
+colnames(gene.entrez)[1] <- "gene"
+frc <- left_join(frc, gene.entrez, by = "gene")
+
+gene_list <- frc$logFC
+names(gene_list) <- frc$ENTREZID
+
+set.seed(1245)
+gse <- gsePathway(geneList = gene_list, 
+                pvalueCutoff = 0.2,
+                pAdjustMethod = "BH", 
+                verbose = FALSE)
+dotplot(gse, showCategory=30)
+
+library(enrichplot)
+gseaplot2(gse, geneSetID = c(17,30,21),pvalue_table = TRUE,
+          color = c("#DB5D4B","#7872D9","black"))
+```
+
