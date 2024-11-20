@@ -9,3 +9,6 @@ analysis/*png
 analysis/*html
 analysis/*_cache
 analysis/site_libs
+analysis/_site.yml
+analysis/index.Rmd
+analysis/about.Rmd
