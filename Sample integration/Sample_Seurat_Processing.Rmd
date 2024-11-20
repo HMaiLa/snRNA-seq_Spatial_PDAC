@@ -1,7 +1,6 @@
 ---
 title: "Sample_processing_Seurat"
-author: "Hue M La & Fernando J. Rossello"
-date: '2024-10-31'
+author: "Hue M. La & Fernando J. Rossello"
 output: html_document
 ---
 
@@ -35,7 +34,7 @@ objects.path <- here("output/objects")
 
 # Load QCed SCE object.
 ```{r load_sce_object}
-qc.dbl.fltrd.sts.sce <- readRDS("~/Projects/PDAC_STS_2024/data/qc.dbl.fltrd.sts.sce.RDS")
+qc.dbl.fltrd.sts.sce <- readRDS("../qc.dbl.fltrd.sts.sce.RDS")
 
 sample.no <- length(unique(qc.dbl.fltrd.sts.sce$Sample))
 sample.colours  <- colorRampPalette(brewer.pal(11, "Spectral"))
@@ -146,11 +145,11 @@ sts.seurat <-
 sts.seurat <- FindClusters(sts.seurat, algorithm = 3, resolution = seq(0.1, 1, by = 0.1))
 
 library(clustree)
-clustree::clustree(sts.seurat) #very stable clustering at 0.4, 0.7, 0.8, 1.0
+clustree::clustree(sts.seurat) 
 
 Idents(sts.seurat) <- "SCT_snn_res.0.5"
 sts.seurat$seurat_clusters <- NULL
-sts.seurat$seurat_clusters <- sts.seurat$SCT_snn_res.0.5 # see analysis below, this resolution works very well
+sts.seurat$seurat_clusters <- sts.seurat$SCT_snn_res.0.5 
 
 DimPlot(
   sts.seurat,
@@ -165,9 +164,7 @@ DimPlot(sts.seurat, reduction = "umap", group.by = 'Sample', raster =F)
 ## QC/Clustering plots
 ```{r qc_clustering}
 FeaturePlot(sts.seurat, features = "nCount_RNA", slot = 'data', reduction = "umap", raster = F) + ggtitle('UMAP highlighting number of UMIs per cell') +
-
 FeaturePlot(sts.seurat, features = "nFeature_RNA", reduction = "umap", raster = F) + ggtitle('UMAP highlighting number of genes per cell') +
-
 FeaturePlot(sts.seurat, features = "subsets_mito_percent", reduction = "umap", raster = F) + ggtitle('UMAP highlighting the percentage of UMIs\nassociated with mitochondrial genes')
 ```
 
@@ -180,8 +177,8 @@ clustree(sts.seurat, prefix = "SCT_snn_res.")
 ```{r}
 DefaultAssay(sts.seurat) <- "RNA"
 marker.sets <- list(Malignant_PDAC = c("KRT19","MUC1","KRT17","ACTN4","LMO7"),
-                    Malignant_Acinar = c("CPA1","CPA2","PRSS1","RBPJL","CEL"), # "SPINK1","GATM"
-                    Malignant_PDA_Osteoclast = c("DLX5","OMD","CA2"),#,"CTGF"
+                    Malignant_Acinar = c("CPA1","CPA2","PRSS1","RBPJL","CEL"), 
+                    Malignant_PDA_Osteoclast = c("DLX5","OMD","CA2"),
                     IPMN = c("MUC2","FGF13","REG4","BRINP3","SPINK4"),
                     IPMN_intestinal = c("CEMIP","TCIM","NR4A2","DNER"),
                     Acinar_Cells = c("CPB1","CELA3A","CTRC","PNLIP","PDIA2"),
@@ -189,13 +186,13 @@ marker.sets <- list(Malignant_PDAC = c("KRT19","MUC1","KRT17","ACTN4","LMO7"),
                     Ductal_like_2 = c("MUC6","MUC5B","MUC3A","CALN1","SERPINA1"),
                     Quiescent_stellates = c("PDGFRB","RGS5","TRPC6","PLXDC1","GJC1"),
                     Fibroblasts = c("COL1A1","CALD1", "COL6A3","COL1A2","FN1"),
-                    Fibroblastic_reticular = c("HAS1","PDPN","PLA2G2A","RAB7B","DAW1"),
+                    Fibroblastic_reticular = c("HAS1","PDPN","PLA2G2A"),
                     Tuft_Cells = c("TRPM5","POU2F3","AVIL","BMX","SH2D7"),
                     Islet_Cells = c("INS","GCG","NRG1","KCNMB2","SNTG1"),
                     Endothelial_Cells = c("VWF","CD34","EFNB2","PLVAP","FLT1"),
                     B_Cells = c("FCRL1","MS4A1","PAX5"),
                     Plasma_Cells = c("MZB1","SPAG4","PDK1","IGHG1"),
-                    T_Cells = c("CD3D","CD3E","CD96","CD2","CD247"), #revised
+                    T_Cells = c("CD3D","CD3E","CD96","CD2","CD247"), 
                     Mast_Cells = c("TPSAB1", "CPA3", "MS4A2","HPGDS","KIT"),
                     Macrophages = c("CSF1R","SIGLEC1", "CD163", "MS4A6A"))
 
@@ -207,7 +204,6 @@ DotPlot(sts.seurat, features = marker.sets, group.by = "SCT_snn_res.0.5")  + Rot
 # Add Cell_Ids & S_CB
 sts.seurat$Cell_Ids <- colnames(sts.seurat)
 sts.seurat$S_CB <- paste(sts.seurat$Sample, sts.seurat$Barcode, sep = "_")
-
 
 clusters <- FetchData(sts.seurat, vars = c("Cell_Ids", "seurat_clusters"))
 

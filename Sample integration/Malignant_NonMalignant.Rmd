@@ -1,7 +1,6 @@
 ---
 title: "Malignant_analysis"
-author: "Mai La"
-date: "2024-10-31"
+author: "Hue M. La"
 output: html_document
 ---
 
@@ -30,7 +29,7 @@ data.path <- here("data/")
 # Load object
 ```{r}
 # Object was annotated using simspec integration approach on sample-based 
-sts.simspec.sct <- readRDS("~/projects/PDAC_non_malignant_cell_types/data/import.files/sts.simspec_css.sample.sct.Aug24.RDS")
+sts.simspec.sct <- readRDS("../sts.simspe.RDS")
 ```
 
 # InferCNV run
@@ -87,14 +86,14 @@ sts.malignant <- sts.simspec.sct %>% subset(subset = Patient_ID %in% c("1959","2
 # subset out the malignant
 sts.malignant <- sts.malignant %>% subset(subset = simspec_cell_class == "PDAC") 
 
-# subset out "PDAC" that didn't show changes in CNV from inferCNV analysis
+# subset out "PDAC" that didn't show CNVs from inferCNV analysis
 sts.malignant <- sts.malignant %>% subset(subset = Cell_Ids %in% non.malig, invert=T)
 
 # DietSeurat
-dim(sts.malignant) #  26788 x 53356
+dim(sts.malignant) # 
 DefaultAssay(sts.malignant) <- "RNA"
 sts.malignant <- Seurat::DietSeurat(sts.malignant, assays = "RNA", data = TRUE, counts = TRUE)
-colnames(sts.malignant[[]]) #check which columns to remove
+colnames(sts.malignant[[]]) 
 sts.malignant[["nCount_SCT"]] <- NULL
 sts.malignant[["nFeature_SCT"]] <- NULL
 sts.malignant[["seurat_clusters"]] <- NULL
@@ -154,11 +153,11 @@ sts.malignant.simspec <- FindClusters(sts.malignant.simspec, algorithm = 3, reso
 
 
 library(clustree)
-clustree::clustree(sts.malignant.simspec) #stable res at 0.1, 0.2, 0.3, 0.5
+clustree::clustree(sts.malignant.simspec) 
 DimPlot(sts.malignant.simspec, group.by = "SCT_snn_res.0.1", label = T) 
 
-Idents(sts.malignant.simspec) <- "SCT_snn_res.0.1" #5clusters
-saveRDS(sts.malignant.simspec, file = here(object.path, "sts.malignant.simspec.Aug24.RDS"))
+Idents(sts.malignant.simspec) <- "SCT_snn_res.0.1" 
+saveRDS(sts.malignant.simspec, file = here(object.path, "sts.malignant.simspec.RDS"))
 ```
 
 ## DE analysis to define malignant programs (MPs) - Pseudobulk using edgeR
@@ -248,8 +247,6 @@ library("org.Hs.eg.db")
 Hallmark <- msigdbr(species = "Homo sapiens", category = "H")
 Hallmark.entrez <- dplyr::select(Hallmark, gs_name, entrez_gene)
 
-MP.pseudobulk <- read_csv("~/projects/PDAC_non_malignant_cell_types/output/Tables_Aug24/MP.pseudobulk_Aug24.csv")
-
 gene.symbols <- MP.pseudobulk$gene %>% unique()
 gene.entrez <- bitr(gene.symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db", drop = F)
 colnames(gene.entrez)[1] <- "gene"
@@ -279,8 +276,7 @@ dotplot(hallmark, font.size = 12, showCategory = 5, title = "Hallmark | pseudobu
 # NON-INTEGRATED - for visualisation
 ```{r}
 sts.malignant <- SCTransform(sts.malignant, vst.flavor = "v2", 
-                                 method = "glmGamPoi", verbose = TRUE
-                                 )
+                                 method = "glmGamPoi", verbose = TRUE)
 
 # DIMENTIONALITY REDUCTION
 sts.malignant <- RunPCA(sts.malignant, npcs = 50, verbose = FALSE, assay = "SCT")
@@ -293,24 +289,21 @@ sts.malignant <- RunUMAP(sts.malignant, reduction = "pca", dims = 1:50)
 
 # CLUSTERING
 sts.malignant <- FindNeighbors(sts.malignant, reduction = "pca", dims = 1:50)
-
 sts.malignant <- FindClusters(sts.malignant, algorithm = 3,  resolution = 1) # 
-
-# Decided on the resolution
-# Rationale for choosing algorithm 3: https://github.com/satijalab/seurat/issues/280; also based paper benchmarking the 2 
 DimPlot(sts.malignant, group.by = "ICGC_ID", cols = pat.color) 
 ```
 
 ## Using MP as cell state
 ```{r}
 MP <- list()
-MP$MP1 <- MP.pseudobulk %>% dplyr::filter(cluster == "1", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
-MP$MP2 <- MP.pseudobulk %>% dplyr::filter(cluster == "2", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
-MP$MP3 <- MP.pseudobulk %>% dplyr::filter(cluster == "3", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
-MP$MP4 <- MP.pseudobulk %>% dplyr::filter(cluster == "4", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
-MP$MP5 <- MP.pseudobulk %>% dplyr::filter(cluster == "5", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
-MP$MP6 <- MP.pseudobulk %>% dplyr::filter(cluster == "6", logFC > 1) %>% slice_max(order_by = logFC, n = 30) %>% pull(gene) %>% unique() %>% as.character()
-
+for (i in 1:6) {
+  MP[[paste0("MP", i)]] <- MP.pseudobulk %>%
+    dplyr::filter(cluster == as.character(i), logFC > 1) %>%
+    slice_max(order_by = logFC, n = 30) %>%
+    pull(gene) %>%
+    unique() %>%
+    as.character()
+}
 
 library(UCell)
 DefaultAssay(sts.malignant) <- "RNA"
@@ -319,12 +312,10 @@ sts.malignant <- AddModuleScore_UCell(sts.malignant,
                                       assay="RNA", slot = "data")
 MP.names <- paste0(names(MP),"_UCell")
 
-#col <- rev(brewer.pal(n =3, name = "RdBu"))
 FeaturePlot(sts.malignant,
             features = MP.names,
-            max.cutoff = "q99", # q## indicates quantile
+            max.cutoff = "q99", 
             ncol = 3,
-            #cols = c("black","gold"),
             cols = c("darkblue","gold","darkred"), #,"darkred"),#c("lightgrey","black"), #"#6A3D9A""darkblue"
             keep.scale = "all")
 ```
@@ -451,7 +442,7 @@ dotplot(hallmark, showCategory = 6, title="Hallmark | logFC > 0.2, p_val_adj < 0
 sts.non.malignant <- subset(sts.simspec.sct, subset = simspec_cell_class %in% c("Malignant acinar","PDA_OLGC","PDAC"), invert = T) 
 
 # filter out rare malignant samples
-sts.non.malignant <- subset(sts.non.malignant, subset = Patient_ID %in% c("1959","2185"), invert = T) #35493 cells
+sts.non.malignant <- subset(sts.non.malignant, subset = Patient_ID %in% c("1959","2185"), invert = T) 
 
 # DietSeurat
 dim(sts.non.malignant)
@@ -471,8 +462,7 @@ sts.non.malignant[["SCT_snn_res.1.2"]] <- NULL
 ## Normalised by SCTransform v2 as a whole -> PCA 
 ```{r}
 sts.non.malignant <- SCTransform(sts.non.malignant, vst.flavor = "v2", 
-                                 method = "glmGamPoi", verbose = TRUE
-                                 )
+                                 method = "glmGamPoi", verbose = TRUE)
 
 # DIMENTIONALITY REDUCTION
 sts.non.malignant <- RunPCA(sts.non.malignant, npcs = 50, verbose = FALSE, assay = "SCT")

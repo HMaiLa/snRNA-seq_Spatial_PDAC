@@ -1,7 +1,6 @@
 ---
 title: "Sample_integration"
 author: "Hue M. La"
-date: '2024-10-31'
 output: html_document
 ---
 
@@ -55,9 +54,7 @@ for (i in names(sts.seurat)){
 
 ## Simspec CSS integration - 'orig.ident'
 ```{r}
-# Codes modified from Fernando
-# Merge and set common features 
-features.ls <- SelectIntegrationFeatures(object.list = sts.seurat, nfeatures = 2000) #default nfeatures
+features.ls <- SelectIntegrationFeatures(object.list = sts.seurat, nfeatures = 2000)
 
 sts.simspec_css.sample.sct <- merge(x = sts.seurat[[1]], y = sts.seurat[2:length(sts.seurat)], 
                                   merge.data = TRUE)
@@ -65,7 +62,7 @@ sts.simspec_css.sample.sct <- merge(x = sts.seurat[[1]], y = sts.seurat[2:length
 VariableFeatures(sts.simspec_css.sample.sct) <- features.ls
 
 # PCA 
-sts.simspec_css.sample.sct <- RunPCA(sts.simspec_css.sample.sct, verbose = TRUE, assay = "SCT") #default npcs = 50
+sts.simspec_css.sample.sct <- RunPCA(sts.simspec_css.sample.sct, verbose = TRUE, assay = "SCT") 
 
 # Run CSS ----
 install.packages("devtools")
@@ -75,14 +72,13 @@ library(simspec)
 sts.simspec_css.sample.sct <-
   simspec::cluster_sim_spectrum(
     object = sts.simspec_css.sample.sct,
-    label_tag = "orig.ident", #original sample labels from pre-processing step
+    label_tag = "orig.ident", 
     cluster_resolution = 0.4,
     corr_method = "pearson",
     spectrum_type = "corr_kernel"
   )
 
-cat("Current reductions in object:", Reductions(sts.simspec_css.sample.sct)) # pca css
-# Current reductions in object: pca css
+cat("Current reductions in object:", Reductions(sts.simspec_css.sample.sct)) 
 
 # Reference codes from:  https://github.com/quadbio/simspec/blob/master/vignette/vignette.md
 sts.simspec_css.sample.sct <- RunUMAP(sts.simspec_css.sample.sct, reduction = "css", 
@@ -99,7 +95,6 @@ library(clustree)
 clustree::clustree(sts.simspec_css.sample.sct)d
 
 DimPlot(sts.simspec_css.sample.sct, raster = F, group.by = "SCT_snn_res.1.1", label = T) + DimPlot(sts.simspec_css.sample.sct, group.by = "cell_class",label = T, repel =T, raster = F)
-saveRDS(sts.simspec_css.sample.sct, file = "~/Projects/PDAC_STS_2024/output/objects_ML/sts.simspec_css.sample.sct.Aug24.RDS")
 
 Idents(sts.simspec_css.sample.sct) <- "SCT_snn_res.1.1" # this defines FRCs and correlate quite well with cell classes defined by non-integrated method
 sts.simspec_css.sample.sct$seurat_clusters <- NULL 
@@ -118,21 +113,21 @@ clusters <-
   clusters %>% dplyr::mutate(
     simspec_cell_class = dplyr::case_when(
       seurat_clusters %in% c("0","2","3","4","7","9","11","12","14","15","21","22","24","27","34","40","45") ~ "PDAC",
-      seurat_clusters %in% c("39") ~ "Tuft", #check
-      seurat_clusters %in% c("5", "33") ~ "Ductal_epithelial", #check
-      seurat_clusters %in% c("30") ~ "Acinar", #check
-      seurat_clusters %in% c("43","18","6","1") ~ "Malignant acinar", #check
-      seurat_clusters %in% c("46","20","8") ~ "T/NK", #check
-      seurat_clusters %in% c("10","13","29","47") ~ "CAFs", #check
-      seurat_clusters %in% c("19","44","37","38") ~ "PDA_OLGC", #check
-      seurat_clusters ==  "41" ~ "Mast", #check
-      seurat_clusters ==  "32" ~ "B", #check
-      seurat_clusters ==  "42" ~ "FRCs", #check
-      seurat_clusters == "35" ~ "Plasma",#check
-      seurat_clusters %in% c("16","17", "25", "31") ~ "Macrophages", #check
+      seurat_clusters %in% c("39") ~ "Tuft", 
+      seurat_clusters %in% c("5", "33") ~ "Ductal_epithelial", 
+      seurat_clusters %in% c("30") ~ "Acinar", 
+      seurat_clusters %in% c("43","18","6","1") ~ "Malignant acinar", 
+      seurat_clusters %in% c("46","20","8") ~ "T/NK", 
+      seurat_clusters %in% c("10","13","29","47") ~ "CAFs", 
+      seurat_clusters %in% c("19","44","37","38") ~ "PDA_OLGC", 
+      seurat_clusters ==  "41" ~ "Mast", 
+      seurat_clusters ==  "32" ~ "B", 
+      seurat_clusters ==  "42" ~ "FRCs", 
+      seurat_clusters == "35" ~ "Plasma",
+      seurat_clusters %in% c("16","17", "25", "31") ~ "Macrophages", 
       seurat_clusters ==  "28" ~ "Endothelial", 
       seurat_clusters %in%  c("23", "26") ~ "Endocrine", 
-      seurat_clusters == "36"  ~ "Pericytes" #done
+      seurat_clusters == "36"  ~ "Pericytes" 
       
     )
   )
@@ -146,6 +141,6 @@ sts.simspec_css.sample.sct <- AddMetaData(sts.simspec_css.sample.sct,
 
 DimPlot(sts.simspec_css.sample.sct,
         group.by = "simspec_cell_class", raster = F, label = T) +
-  DimPlot(sts.simspec_css.sample.sct, raster = F, label = T, group.by = "seurat_clusters") + 
-  DimPlot(sts.simspec_css.sample.sct, raster = F, label = T, group.by = "cell_class") 
+  DimPlot(sts.simspec_css.sample.sct, raster = F, label = T, group.by = "seurat_clusters") 
+saveRDS(sts.simspec_css.sample.sct, file = ".../sts.simspec.RDS")
 ```
