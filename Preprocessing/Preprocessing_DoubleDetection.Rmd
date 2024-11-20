@@ -1,16 +1,13 @@
 ---
 title: "Preprocessing_DoubleDetection.Rmd"
-author: "Mai La"
-date: "2024-08-08"
+author: "Hue M. La & Fernando J. Rossello"
 output: html_document
 ---
 
 # Background.
-
 Doublet detection on Cellbender output on all samples.
 Code run as described [here] and downstream analysis based on a tutorial from [`scCustomise`] (https://samuel-marsh.github.io/scCustomize/articles/Cell_Bender_Functions.html) and a tutorial from [`10X`](https://www.10xgenomics.com/cn/resources/analysis-guides/background-removal-guidance-for-single-cell-gene-expression-datasets-using-third-party-tools). 
 
-Codes adapted from Fer's 'QC_Doublet_Detection.Rmd' code
 # Prepare environment
 ```{r global-options, include=FALSE}
 knitr::opts_chunk$set(echo = F, warning = F, error = F, message = F, results = "hide", eval = T)
@@ -22,7 +19,6 @@ options(future.globals.maxSize= 1048576000)
 ```
 
 ## Libraries.
-
 ```{r import_libraries, include = TRUE, echo=TRUE, results='hide', message=FALSE}
 library("here")
 library("Seurat")
@@ -44,10 +40,8 @@ library("SingleCellExperiment")
 
 # Samples list and metadata.
 ```{r sample_metadata}
-sample.metadata <- read.csv("~/projects/PDAC_non_malignant_cell_types/data/import.files/SG_sample_meta.csv", header = T, stringsAsFactors = F)
-
+sample.metadata <- read.csv("../sample_meta.csv", header = T, stringsAsFactors = F)
 sts.samples <- dplyr::filter(sample.metadata, LTS != "Yes", Atlas == "Yes")
-
 print(sts.samples)
 ```
 
@@ -69,11 +63,6 @@ names(cellbender.out) <- cellbender.out %>% gsub(".*/|_cellbender_filtered.h5|-G
 sts.samples.names <- sapply(sts.samples$Case, function(x)
   grep(x, names(cellbender.out), value = T)) %>% unlist() %>% as.character() %>% unique()
 
-# Post-filtering low quality cells and discarding lowly expressed genes (see below), sample 2057-V1 only had 389 genes that were expressed in at least 25 cells and will be discarded. 
-# Also, samples 2179, 2210, 2911 2221 and 2946.
-# Patient #2212 has no malignant epithelial, also removed
-# IPMN is from the Avner's cohort, also removed
-
 low.q.samples <- c("2057-V1", "2179", "2210", "2911", "2221", "2946", 
                    "2212") 
 intersect(low.q.samples, sts.samples.names)
@@ -92,7 +81,7 @@ sts.sce <-
     samples = cellbender.out,
     sample.names = names(cellbender.out),
     col.names = TRUE
-  ) # should have 30 samples total
+  ) # 30 samples total
 
 ## Additional step to check that there no negative values or NAs
 counts <- counts(sts.sce) %>% as.matrix()
@@ -118,8 +107,6 @@ nexprs.discard <- sapply(names(nexprs.list),
 print(names(which(nexprs.discard)) %>% gsub(".TRUE", "", .))
 ```
 
-Without gene prefiltering none of the samples were discarded based on the criteria described above.
-
 # Doublet detection
 Doublet detection and conceptual framework adapted from [OSCA advanced chapter 8](http://bioconductor.org/books/3.13/OSCA.advanced/doublet-detection.html#further-comments-3).
 Doublet detection could also be performed on a split object (see addendum).
@@ -133,14 +120,6 @@ Discard only very low quality cells. According to `scDblFinder` vignette discard
 qc.dbl.df <- perCellQCMetrics(sts.sce)
 
 qc.dbl.sum <- qc.dbl.df$sum < 200
-
-table(qc.dbl.sum)
-#qc.dbl.sum
-# FALSE   TRUE 
-#135982   4752 
-
-#dim(sts.sce)
-#36601 140734
 ```
 
 
@@ -149,16 +128,10 @@ table(qc.dbl.sum)
 fltrd.sts.sce <- sts.sce[, !qc.dbl.sum]
 
 table(nexprs(fltrd.sts.sce, byrow = T, BPPARAM = bpp) > 0)
-#FALSE  TRUE 
-# 2725 33876 
-# Keep expressed genes only.
 
 set.seed(1234)
 non.zero.features <- nexprs(fltrd.sts.sce, byrow = T, BPPARAM = bpp) > 0
 table(non.zero.features)
-#non.zero.features
-#FALSE  TRUE 
-# 2725 33876
 
 fltrd.sts.sce <- fltrd.sts.sce[non.zero.features, ]
 ```
@@ -168,10 +141,8 @@ Discard samples with low no. of cells post initial QC.
 
 ```{r low_cell_samples_discard }
 print(as.data.frame(colData(fltrd.sts.sce)) %>% dplyr::count(Sample) %>% dplyr::arrange(n))
-# No samples with less than 500 cells.
-
 saveRDS(fltrd.sts.sce,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/fltrd.sts.sce.RDS")
+  file = "../fltrd.sts.sce.RDS")
 ```
 
 
@@ -182,38 +153,19 @@ dbl.clusters.samples <- scran::quickCluster(fltrd.sts.sce,
                                             BPPARAM = bpp,
                                             block=fltrd.sts.sce$Sample
                                             )
-
-                             #BPPARAM = bpp, # no parallelization if block is not in used 
-                             #block=cut(seq_len(ncol(fltrd.sts.sce)), 10), # additional line to help speed things up? 
-                             #block=fltrd.sts.sce$Sample,
-                             #method = "igraph")
-
-# Notes on clustering within block: "We can break up the dataset by specifying block to cluster cells, usually within each batch or run. This generates clusters within each level of block, which is entirely adequate for applications like computeSumFactors where the aim of clustering is to separate dissimilar cells rather than group together all similar cells. Blocking reduces computational work considerably by allowing each level to be processed independently, without compromising performance provided that there are enough cells within each batch.
-#Indeed, for applications like computeSumFactors, we can use block even in the absence of any known batch structure. Specifically, we can set it to an arbitrary factor such as block=cut(seq_len(ncol(x)), 10) to split the cells into ten batches of roughly equal size. This aims to improve speed, especially when combined with block.PARAM to parallelize processing of the independent levels" https://rdrr.io/bioc/scran/man/quickCluster.html
-
 #More discussion here: https://support.bioconductor.org/p/9155953
-
-saveRDS(dbl.clusters.samples,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/dbl.clusters.samples.RDS")
 
 library(scuttle)
 library(scran)
 library(DropletUtils)
-fltrd.sts.sce <-
-  computeSumFactors(fltrd.sts.sce,
-                    clusters = dbl.clusters.samples,
-                    BPPARAM = bpp)
+fltrd.sts.sce <-computeSumFactors(fltrd.sts.sce,
+                                  clusters = dbl.clusters.samples, 
+                                  BPPARAM = bpp)
 
 print(sizeFactors(fltrd.sts.sce) %>% head(n = 10))
-# [1] 20.654276 12.916691 16.909326 13.964262  5.749571  6.198304  6.194301  7.970234  6.053636  5.061844
 
-# To continue from here
 fltrd.sts.sce <-
   logNormCounts(fltrd.sts.sce)
-
-saveRDS(fltrd.sts.sce,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/fltrd.sts.sce.samples.RDS")
-
 ```
 
 ### Variance modelling
@@ -224,13 +176,6 @@ dec.dbl <-
                         BPPARAM = bpp)
 top.dec.dbl <-
   getTopHVGs(dec.dbl, n = 5000)
-
-saveRDS(top.dec.dbl,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/top.dec.dbl.RDS")
-saveRDS(dec.dbl,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/dec.dbl.RDS")
-saveRDS(fltrd.sts.sce,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/fltrd.sts.sce.samples.RDS")
 ```
 
 ### Dimensionality reduction.
@@ -239,7 +184,7 @@ set.seed(1234)
 fltrd.sts.sce <-
   denoisePCA(fltrd.sts.sce,
              technical = dec.dbl,
-             subset.row = top.dec.dbl) #this step take some time 1h30
+             subset.row = top.dec.dbl) 
 
 reducedDimNames(fltrd.sts.sce)
 
@@ -252,11 +197,6 @@ set.seed(1234)
 fltrd.sts.sce <- runUMAP(
   fltrd.sts.sce,
   dimred = "PCA"#,
-  # external_neighbors = TRUE,
-  # BNPARAM = BiocNeighbors::AnnoyParam(),
-  # BPPARAM = bpp,
-  # n_threads = 16
-  # n_threads = BiocParallel::bpnworkers(bpp)
 )
  
 reducedDimNames(fltrd.sts.sce)
@@ -264,8 +204,6 @@ reducedDimNames(fltrd.sts.sce)
 plotReducedDim(fltrd.sts.sce,
                colour_by = "Sample",
                dimred = "UMAP"#,
-               # text_by = "Sample",
-               # text_col = "black"
                ) + scale_color_manual(values = sample.colours(sample.no))
 
 plotReducedDim(fltrd.sts.sce,
@@ -275,11 +213,9 @@ plotReducedDim(fltrd.sts.sce,
                text_by = "Sample",
                # text_col = "black"
                )
-# Both 2302 and IPMN highly express MUC2
 ```
 
 ### Clustering
-
 ```{r clustering}
 require('scDblFinder')
 set.seed(1234)
@@ -288,8 +224,6 @@ fltrd.sts.sce$fastClusters <-
   fastcluster(fltrd.sts.sce, rdname = "PCA") %>% as.factor()
 
 colLabels(fltrd.sts.sce) <- fltrd.sts.sce$fastClusters
-
-# Read object generated by `dbl_clustering.R` script.
 
 table(colLabels(fltrd.sts.sce))
 
@@ -302,10 +236,6 @@ plotUMAP(fltrd.sts.sce, colour_by = "Sample")  + scale_color_manual(values = sam
 ## scDblFinder
 ### Run scDblFinder
 ```{r scdDblFinder}
-require(scDblFinder)
-# Seed set on MultiCoreParam
-# set.seed(1234)
-
 fltrd.sts.sce <-
   scDblFinder(
     fltrd.sts.sce,
@@ -315,14 +245,11 @@ fltrd.sts.sce <-
   )
 
 table(fltrd.sts.sce$scDblFinder.class)
-#singlet doublet 
-# 129134    6848 
 
 plotUMAP(fltrd.sts.sce, colour_by="scDblFinder.class") +
   plotUMAP(fltrd.sts.sce, colour_by="Sample") #+ scale_color_manual(values = sample.colours(sample.no))
 
-saveRDS(fltrd.sts.sce,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/fltrd.sts.sce.RDS")
+saveRDS(fltrd.sts.sce, file = "../fltrd.sts.sce.RDS")
 ```
 
 ### Doublet detection metrics.
@@ -359,12 +286,5 @@ print(as.data.frame(colData(dbl.fltrd.sts.sce)) %>%
         dplyr::arrange(desc(n)))
 
 saveRDS(dbl.fltrd.sts.sce,
-  file = "~/projects/PDAC_non_malignant_cell_types/analysis/postCellBender_QCs/Rerun_Aug24/dbl.fltrd.sts.sce.RDS")
-# this object has 129134 cells
-# table(fltrd.sts.sce$scDblFinder.class)
-# singlet doublet 
-# 129134    6848 
-# table(dbl.fltrd.sts.sce$scDblFinder.class)
-# singlet doublet 
-# 129134       0
+  file = "../dbl.fltrd.sts.sce.RDS")
 ```
