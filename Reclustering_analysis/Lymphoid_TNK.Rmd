@@ -1,0 +1,529 @@
+# Libraries
+```{r Packages}
+library(Seurat)
+library(schex)
+library(ggplot2)
+library(shiny)
+library(dplyr)
+library(patchwork)
+library(rmarkdown)
+library(openxlsx)
+library(here)
+```
+
+# Data loading
+```{r eval=FALSE}
+sts.non.malignant <- readRDS("../Aug24_objects/sts.nonmalignant.RDS")
+sample.high.lymphoid <- as.data.frame(sts.non.malignant@meta.data) %>%
+                                  group_by(Sample) %>%
+                                  dplyr::count(Lv.1.Anno) %>%
+                                  dplyr::filter(Lv.1.Anno %in% c("Lymphoid", "B", "Plasma", "B:GC"), n > 30) %>%
+                                  pull(Sample) %>%
+                                  as.character()
+
+lymphoid <- sts.non.malignant %>% subset(subset = Sample %in% sample.high.lymphoid & 
+                                  Lv.1.Anno %in% c("Lymphoid", "B", "Plasma","B:GC"))
+```
+
+# DietSeurat
+```{r eval=FALSE}
+DefaultAssay(lymphoid) <- "RNA"
+lymphoid <- DietSeurat(lymphoid,
+                     assay = "RNA", 
+                     data = TRUE, 
+                     counts = TRUE) 
+
+colnames(lymphoid[[]])
+lymphoid[["nCount_SCT"]] <- NULL
+lymphoid[["nFeature_SCT"]] <- NULL
+lymphoid[["SCT_snn_res.0.6"]] <- NULL
+lymphoid[["SCT_snn_res.0.7"]] <- NULL
+lymphoid[["SCT_snn_res.0.8"]] <- NULL
+lymphoid[["SCT_snn_res.0.5"]] <- NULL
+lymphoid[["seurat_clusters"]] <- NULL
+
+#Removing outlier samples
+lymphoid <- subset(lymphoid, subset = Sample %in% c("1959","2185"), invert = T)
+```
+
+# Normalisation using SCTv2
+```{r eval=FALSE}
+# To split object into individual samples for downstream normalisation 
+lymphoid <- SplitObject(lymphoid, split.by = "Sample") # we will use Sample instead of Patient, as they were processed separately 
+lymphoid <- lapply(lymphoid, FUN= SCTransform, 
+                              vst.flavor="v2",
+                              assay = "RNA",
+                              variable.features.n = 3000)
+```
+
+## Simspec
+```{r}
+# Merge and set common features 
+int.features.split <- SelectIntegrationFeatures(object.list = lymphoid, nfeatures = 2000)
+lymphoid.simspec_css.sample.sct <- merge(x = lymphoid[[1]], y = lymphoid[2:length(lymphoid)], 
+                                  merge.data = TRUE)
+
+VariableFeatures(lymphoid.simspec_css.sample.sct) <- int.features.split
+
+# PCA 
+lymphoid.simspec_css.sample.sct <- RunPCA(lymphoid.simspec_css.sample.sct, verbose = TRUE, assay = "SCT",
+                                  npcs = 30) #default npcs = 50
+
+# Run CSS ----
+library(simspec)
+lymphoid.simspec_css.sample.sct <-
+  simspec::cluster_sim_spectrum(
+    object = lymphoid.simspec_css.sample.sct,
+    label_tag = "orig.ident", #original sample labels from pre-processing step
+    cluster_resolution = 0.4,
+    corr_method = "pearson",
+    spectrum_type = "corr_kernel"
+  )
+
+cat("Current reductions in object:", Reductions(lymphoid.simspec_css.sample.sct)) # pca css
+
+# Reference codes from:  https://doi.org/10.17632/3kthhpw2pd 
+lymphoid.simspec_css.sample.sct <- RunUMAP(lymphoid.simspec_css.sample.sct, reduction = "css", 
+                                   dims = 1:ncol(Embeddings(lymphoid.simspec_css.sample.sct, "css")), #294
+                                   reduction.name="umap_css", reduction.key="UMAPCSS_")
+
+lymphoid.simspec_css.sample.sct <- FindNeighbors(lymphoid.simspec_css.sample.sct, reduction="css", 
+                                         dims = 1:ncol(Embeddings(lymphoid.simspec_css.sample.sct, "css")))
+
+lymphoid.simspec_css.sample.sct <- FindClusters(lymphoid.simspec_css.sample.sct, algorithm = 3,resolution = seq(0.1, 1.5, by = 0.1))
+
+library(clustree)
+clustree::clustree(lymphoid.simspec_css.sample.sct)
+DimPlot(lymphoid.simspec_css.sample.sct, group.by = "SCT_snn_res.1.2", label = T) + DimPlot(lymphoid.simspec_css.sample.sct, group.by = "Lv.2.Anno", label = T)
+```
+
+## Annotation
+```{r}
+metadata <- lymphoid.simspec_css.sample.sct@meta.data %>% as.data.frame() 
+metadata$S_CB <- rownames(metadata)
+metadata %>% mutate(Lv.2.Anno = case_when(SCT_snn_res.1.2 == "0" ~ "B",
+                                          SCT_snn_res.1.2 == "3" ~ "CD4+ T:IL7R+", 
+                                          SCT_snn_res.1.2 == "1" ~ "CD8+ T:IL7R+", 
+                                          SCT_snn_res.1.2 %in% c("7","6") ~ "CD4+ T:CCR7+", 
+                                          SCT_snn_res.1.2 %in% c("10","5","2") ~ "CD8+ T:GZMK+", #checked
+                                          SCT_snn_res.1.2 %in% c("15","13","11")  ~ "CD8+ T:ITGAE+", # Trm
+                                          SCT_snn_res.1.2 %in% c("14","8") ~ "CD4+ T:FOXP3+", #checked
+                                          SCT_snn_res.1.2 == "12" ~ "NK", #checked
+                                          SCT_snn_res.1.2 %in% c("9","16") ~ "Plasma", #checked
+                                          SCT_snn_res.1.2 == "17" ~ "gdT", #checked
+                                          SCT_snn_res.1.2 == "18" ~ "CD4+ T:CXCL13+", #checked
+                                          SCT_snn_res.1.2 == "19" ~ "B:GC", #checked
+                                          TRUE ~ "CD3+ T"
+                                          )) -> metadata
+metadata %>% group_by(SCT_snn_res.0.7) %>% count(Lv.2.Anno)
+Lv.2.Anno <- metadata$Lv.2.Anno 
+names(Lv.2.Anno) <- metadata$S_CB
+lymphoid.simspec_css.sample.sct <- AddMetaData(object = lymphoid.simspec_css.sample.sct, metadata = Lv.2.Anno, col.name = "Lv.2.Anno")
+DimPlot(lymphoid.simspec_css.sample.sct, group.by = "SCT_snn_res.1.2", label = T) + 
+  DimPlot(lymphoid.simspec_css.sample.sct, group.by = "Lv.2.Anno", label = T, cols = lymphoid.color)
+```
+
+# PLOTTING
+## Color
+```{r}
+pat.col <- c("#6DE8B7","#D741E1","#B4E1CF","#DEB8E0","#DD4A8C","#7F9F32","#C3EAB4" ,"#7B67E0" ,"#D8E746" ,"#CEE982" ,"#DE73DA" ,"#92A36F" ,"#67C0D8" ,"#E1A497" ,"#E76356" ,"#62A4DB", "#D79655" ,"#8966AA", "#9899E8" ,"#6EE9E7","#E4C751" ,"#E7E3DA" )  #
+pat.color <- setNames(object = pat.col, nm=c("1971", "1993", "2001", "2023", "2041", "2052", "2057", "2129", "2133", "2153", "2156", "2158", "2221", "2285", "2302", "2353", "2925", "2935", "2946", "2992", "3513", "2215"))
+
+lymphoid.col <- c("#D7B9D0","#E1DF5F","#B549DC","#8FE46E","#E27258","#74DDB6","#82CCDE","#C8AF7C","#D9E7CA","#DF649A","#778CD3","#CA86DB","#FDB462","#377EB8")
+
+lymphoid.col <- c("#E1DF5F","#E27258", "darkgreen","#FDB462",
+                  "#82CCDE","#778CD3","#B8C9E4" ,
+                  "#C8AF7C","#DF649A","#D9E7CA","#D7B9D0" ,"#CA85A5","#608A8D")
+lymphoid.color <- setNames(object = lymphoid.col, nm=c("CD4+ T:CCR7+","CD4+ T:FOXP3+","CD4+ T:CXCL13+","CD4+ T:IL7R+",
+                                                       "CD8+ T:GZMK+","CD8+ T:ITGAE+","CD8+ T:IL7R+",
+                                                       "NK","gdT", "CD3+ T","B","B:GC","Plasma"))
+DimPlot(lymphoid.simspec_css.sample.sct, cols = lymphoid.color)
+```
+
+## DotPlot / Heatmap to verify cluster identity
+```{r}
+features <- list()
+features$CD4_CC7R <- c("CD4","CCR7","TCF7")
+features$CD4_FOXP3 <- c("IL2RA","FOXP3","IKZF2")
+features$CD4_IL7R <- c("IL7R", "CD40LG","SLC4A10")
+features$CD4_CXCL13 <- c("CXCL13","PDCD1","ICOS","CXCR5")
+features$CD8_GZMK <- c("CD8A","CD8B","GZMK","KLRG1","EOMES")
+features$CD8_ITGAE <- c("ITGAE","ITGA1","GZMH","GZMB")
+features$NK <- c("KLRD1","TRDC","NKG7","GNLY","KLRF1")
+features$gdT <- c("TRGC2","XCL1","XCL2","NCR3")
+features$B <- c("MS4A1","LY86","CD22","HLA-DRB1","HLA-DRA")
+features$B_GC <- c("PLEK","RGS13","LMO2","FCER2")
+features$Plasma <- c("IGHG1","MZB1","PDK1")
+DotPlot(lymphoid.simspec_css.sample.sct, features = features, group.by = "Lv.2.Anno") + scale_color_gradient2(low="darkblue", mid="white", high = "darkred") + RotatedAxis()
+
+# Use data from dotplot to plot heatmap
+DefaultAssay(lymphoid.simspec_css.sample.sct) <- "RNA"
+Idents(lymphoid.simspec_css.sample.sct) <- "Lv.2.Anno"
+data <- DotPlot(lymphoid.simspec_css.sample.sct, features = features)
+data <- as.data.frame(data[["data"]])
+
+data <- data %>% filter(!is.na(features.plot))
+df_spread <- tidyr::spread(data[,c(3,4,5)], id, avg.exp.scaled)
+rownames(df_spread) <- df_spread[,1]
+df_spread <- df_spread[,-1]
+mat <- as.matrix(df_spread)
+
+paletteLength <- 100
+col <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(paletteLength)
+myBreaks <- c(seq(min(mat), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(mat)/paletteLength, max(mat), length.out=floor(paletteLength/2)))
+
+library(pheatmap)
+library(viridisLite)
+phet <- pheatmap(t(mat),
+                 color = col,fontsize =10, breaks = myBreaks,
+                 cellheight = 9, border_color = T,fontsize_row = 10, 
+                 cellwidth = 9, scale = "none")
+```
+
+# TILs state
+```{r}
+## Ref https://carmonalab.github.io/UCell_demo/UCell_vignette_TILstates.html  - TIL states
+TILs <- list()
+TILs$CD4_Tfh <- c("CD4","TOX2","MAF","CD200","BATF")
+TILs$CD8_naive <- c("CD8A","CD8B","IL7R","SELL","TCF7","S1RP1","LEF1")
+TILs$CD8_Tem <- c("CD8A","CD8B","GZMA","GZMK","CCL5","CXCR3")
+TILs$CD4_Thelper <- c("CD40LG","CD4","IL7R","RORA","ANXA1")
+TILs$CD4_naive <- c("CD40LG","CD4","CCR7","SELL","IL7R","TCF7","LEF1")
+TILs$CD8_Tpex <- c("CD8A","CD8B","LAG3","XCL1","CRTAM","TOX","ZEB2","PDCD1","TCF7","CCR7")
+TILs$CD8_Tex <- c("CD8A","CD8B","LAG3","HAVCR2","GZMB","PRF1","PDCD1","TIGIT")
+TILs$CD4_Treg <- c("CD4","IL2RA","FOXP3")
+
+library(UCell)
+DefaultAssay(lymphoid.simspec_css.sample.sct) <- "RNA"
+Idents(lymphoid.simspec_css.sample.sct) <- "Lv.2.Anno"
+lymphoid.simspec_css.sample.sct <- AddModuleScore_UCell(lymphoid.simspec_css.sample.sct, 
+                                                        features = TILs, assay= "RNA", slot="data")
+cell.names <- paste0(names(TILs), "_UCell")
+
+## Plotting 
+ddata <- DotPlot(subset(lymphoid.simspec_css.sample.sct,subset = Lv.2.Anno %in% c("CD4+ T:CXCL13+","CD4+ T:FOXP3+","CD4+ T:CCR7+","CD4+ T:IL7R+","CD8+ T:GZMK+","CD8+ T:ITGAE+","CD8+ T:IL7R+","CD3+ T")), features = cell.names) 
+ddata <- as.data.frame(ddata[["data"]])
+df_spread <- tidyr::spread(ddata[,c(3,4,5)], id, avg.exp.scaled)
+rownames(df_spread) <- df_spread[,1]
+df_spread <- df_spread[,-1]
+mat <- as.matrix(df_spread)
+
+sum(is.infinite(mat)) 
+sum(is.na(mat))
+
+paletteLength <- 20
+col <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(paletteLength)
+myBreaks <- c(seq(min(mat), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(mat)/paletteLength, max(mat), length.out=floor(paletteLength/2)))
+
+library(pheatmap)
+library(viridisLite)
+phet <- pheatmap(t(mat), 
+                 color = mako(20), fontsize = 12,cellheight = 15,
+                 border_color = T, breaks=seq(0, 2,length.out=20), fontsize_row = 12, 
+                 cutree_cols = 3, cutree_rows = 3, cellwidth = 15, scale = "none")
+```
+
+# PSEUDOBULK
+## DE comparing all T/NK subsets
+```{r echo=TRUE, include=FALSE}
+#Ref: https://github.com/yunshun/HumanBreast10X/blob/main/RCode/NormTotal.R
+TNK.only <- subset(lymphoid.simspec, subset = Lv.2.Anno %in% c("B", "B:GC", "Plasma"), invert=T)
+DefaultAssay(TNK.only) <- "RNA"
+
+# Converting cluster name into numerical
+Idents(TNK.only) <- "Lv.2.Anno"
+TNK.only@meta.data$Lv.2.Anno <- as.factor(TNK.only@meta.data$Lv.2.Anno)
+print(levels(TNK.only@meta.data$Lv.2.Anno))
+levels(TNK.only@meta.data$Lv.2.Anno) <- 1:length(levels(TNK.only@meta.data$Lv.2.Anno))
+print(1:length(levels(TNK.only$Lv.2.Anno)))
+ClusterSub <- as.factor(TNK.only@meta.data$Lv.2.Anno) 
+
+PatClust <- paste(TNK.only$Patient_ID, ClusterSub, sep = "_Clst") 
+counts <- TNK.only@assays$RNA@counts 
+counts <- as.matrix(counts)
+counts <- t(rowsum(t(counts), group=PatClust))
+
+library(limma)
+library(edgeR)
+count.matrix <- DGEList(counts) 
+count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix)) 
+count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) 
+count.matrix$samples$group <- count.matrix$samples$Cluster
+count.matrix 
+
+ncls <- length(table(ClusterSub))
+N <- 1:ncls #focus on all clusters
+ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% N] 
+keep <- filterByExpr(ClstSub, min.count=2, min.total.count=5) 
+ClstSub <- ClstSub[keep, , keep=F]
+ClstSub <- calcNormFactors(ClstSub)
+ClstSub$samples$group
+
+plotMDS(ClstSub, pch = 17, col = lymphoid.color[ClstSub$samples$group], main="")
+
+#Design matrix
+Cls <- as.factor(ClstSub$samples$Cluster)
+Pat <- factor(ClstSub$samples$Patient)
+design <- model.matrix(~ Cls + Pat)
+
+#Estimate NB dispersion & QL dispersion
+ClstSub <- estimateDisp(ClstSub, design = design)
+qfit <- glmQLFit(ClstSub, design)
+
+contr <- makeContrasts(
+    Cls1 = -(Cls2+Cls3+Cls4+Cls5+Cls6+Cls7+Cls8+Cls9+Cls10)/9,
+    Cls2 = Cls2-(Cls3+Cls4+Cls5+Cls6+Cls7+Cls8+Cls9+Cls10)/9,
+    Cls3 = Cls3-(Cls2+Cls4+Cls5+Cls6+Cls7+Cls8+Cls9+Cls10)/9,
+    Cls4 = Cls4-(Cls2+Cls3+Cls5+Cls6+Cls7+Cls8+Cls9+Cls10)/9,
+    Cls5 = Cls5-(Cls2+Cls3+Cls4+Cls6+Cls7+Cls8+Cls9+Cls10)/9,
+    Cls6 = Cls6-(Cls2+Cls3+Cls4+Cls5+Cls7+Cls8+Cls9+Cls10)/9,
+    Cls7 = Cls7-(Cls2+Cls3+Cls4+Cls5+Cls6+Cls8+Cls9+Cls10)/9,
+    Cls8 = Cls8-(Cls2+Cls3+Cls4+Cls5+Cls6+Cls7+Cls9+Cls10)/9,
+    Cls9 = Cls9-(Cls2+Cls3+Cls4+Cls5+Cls6+Cls7+Cls8+Cls10)/9,
+    Cls10 = Cls10-(Cls2+Cls3+Cls4+Cls5+Cls6+Cls7+Cls8+Cls9)/9,
+    levels=design)
+
+de <- list()
+for (i in 1:ncls) de[[i]] <- glmQLFTest(qfit, contrast = contr[,i])
+
+#log-CPM
+prior.count <- 1
+ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating cpm
+
+# Remove batch effect on log-CPM
+logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch=Pat, group = Cls) # for visualisation purposes only
+boxplot(as.data.frame(ClstSub.cpm),main="Original")
+boxplot(as.data.frame(logCPM_no_batch),main="Batch corrected")
+plotMDS(logCPM_no_batch, pch = 16, col = lymphoid.color[ClstSub$samples$group], main="")
+
+### Extracting data table ###
+clusters <- list()
+
+# Loop through each cluster index (1 to 10)
+for (i in 1:10) {
+  clusters[[i]] <- de[[i]]$table %>%
+    mutate(cluster = i, gene = rownames(.)) %>%
+    dplyr::filter(abs(logFC) >= 1, PValue < 0.05)
+}
+
+# Combine all clusters into a single data frame
+TNK.simspec.pseudobulk <- dplyr::bind_rows(clusters)
+TNK.simspec.pseudobulk %>% mutate(cell_names = case_when(cluster == "1" ~ "CD3+ T",
+                                                              cluster == "2" ~ "CD4+ T:CCR7+",
+                                                              cluster == "3" ~ "CD4+ T:CXCL13+",
+                                                              cluster == "4" ~ "CD4+ T:FOXP3+",
+                                                              cluster == "5" ~ "CD4+ T:IL7R+",
+                                                              cluster == "6" ~  "CD8+ T:GZMK+",
+                                                              cluster == "7" ~ "CD8+ T:IL7R+",
+                                                              cluster == "8" ~ "CD8+ T:ITGAE+",
+                                                              cluster == "9" ~ "gdT",
+                                                              cluster == "10" ~ "NK")) -> TNK.simspec.pseudobulk
+```
+
+## DE analysis comparing Trm vs cytotoxic T
+```{r}
+subset <- subset(lymphoid.simspec, subset = Lv.2.Anno %in% c("CD8+ T:GZMK+", "CD8+ T:ITGAE+"))
+Idents(subset) <- "Lv.2.Anno"
+DefaultAssay(subset) <- "RNA"
+subset$Lv.2.Anno <- droplevels(subset$Lv.2.Anno)
+
+subset@meta.data$Lv.2.Anno <- as.factor(subset@meta.data$Lv.2.Anno)
+print(levels(subset@meta.data$Lv.2.Anno))
+levels(subset@meta.data$Lv.2.Anno) <- 1:length(levels(subset@meta.data$Lv.2.Anno))
+print(1:length(levels(subset$Lv.2.Anno)))
+ClusterSub <- as.factor(subset@meta.data$Lv.2.Anno) 
+
+PatClust <- paste(subset$Patient_ID, ClusterSub, sep = "_Clst") #labelling each cell with Sample#_Cls#
+count <- subset@assays$RNA@counts #dgCMatrix
+count <- as.matrix(count)
+counts <- t(rowsum(t(count), group=PatClust))
+
+library(limma)
+library(edgeR)
+count.matrix <- DGEList(counts) 
+count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix)) #adding a new column, named Patient 
+count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) #adding a new column, named Cluster
+count.matrix$samples$group <- count.matrix$samples$Cluster
+count.matrix #count matrix
+
+ncls <- length(table(ClusterSub))
+N <- 1:ncls #focus on all clusters
+ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% N] 
+
+keep <- filterByExpr(ClstSub, min.count=1, min.total.count=5)  # relaxed filtering a bit, otherwise there are no genes detected in the final results; #min=10, min.total.count=20; or 5/10
+ClstSub <- ClstSub[keep, , keep=F]
+ClstSub <- calcNormFactors(ClstSub) # to calculate normalisation factors to a algin columns of a count matrix
+ClstSub$samples$group
+
+lymphoid.col <- c("#82CCDE","#778CD3")
+plotMDS(ClstSub, pch = 16, col = lymphoid.col[ClstSub$samples$group], main="")
+
+#Design matrix
+Cls <- as.factor(ClstSub$samples$Cluster)
+Pat <- factor(ClstSub$samples$Patient)
+design <- model.matrix(~ Cls + Pat)
+
+#Estimate NB dispersion & QL dispersion
+ClstSub <- estimateDisp(ClstSub, design = design)
+qfit <- glmQLFit(ClstSub, design)
+
+contr <- makeContrasts(
+    Cls1 = -Cls2,
+    Cls2 = Cls2,
+    levels=design)
+
+ctest.GZMK <- glmQLFTest(qfit, contrast=contr[,1]) #column 1 corresponded to column1
+ctest.ITGAE <- glmQLFTest(qfit, contrast=contr[,2])
+
+#log-CPM
+prior.count <- 1
+ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating cpm
+
+# Remove batch effect on log-CPM
+# Ref: https://rdrr.io/github/richierocks/limma2/man/removeBatchEffect.html
+logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch = Pat, group = Cls) # following example on ?removeBatchEffect in R
+# boxplot(as.data.frame(ClstSub.cpm),main="Original")
+# boxplot(as.data.frame(logCPM_no_batch),main="Batch corrected")
+plotMDS(logCPM_no_batch, pch = 16, col = lymphoid.col[ClstSub$samples$group], main="Pseudo-bulk samples")
+
+### Extracting data table ###
+cluster.GZMK <- ctest.GZMK$table %>% mutate(cell_names = "CD8+ T:GZMK+")
+cluster.GZMK$gene <- rownames(cluster.GZMK)
+cluster.ITGAE <- ctest.ITGAE$table %>% mutate(cluster = "CD8+ T:ITGAE+")
+cluster.ITGAE$gene <- rownames(cluster.ITGAE)
+```
+
+# ORA
+```{r}
+library("msigdbr")
+library("clusterProfiler")
+library("org.Hs.eg.db")
+Hallmark <- msigdbr(species = "Homo sapiens", category = "H")
+Hallmark.entrez <- dplyr::select(Hallmark, gs_name, entrez_gene)
+
+gene.symbols <- TNK_simspec_pseudobulk$gene %>% unique() 
+gene.entrez <- bitr(gene.symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = "org.Hs.eg.db", drop = F)
+colnames(gene.entrez)[1] <- "gene"
+markers.ann <- left_join(TNK_simspec_pseudobulk, gene.entrez, by = "gene")
+
+dgea.ls <- split(markers.ann, f=markers.ann$cell_names)
+
+#focus on all up-regulated genes
+dgea.up.filtered <- purrr::map(dgea.ls, ~ dplyr::filter(., logFC > 1.5, PValue < 0.01, !is.na(ENTREZID)))
+dgea.ls.up.entrez.id <- purrr::map(dgea.up.filtered, ~ dplyr::pull(., ENTREZID))
+
+universe <- bitr(gene.symbols,
+                 fromType = "SYMBOL",
+                 toType = "ENTREZID",
+                 OrgDb = "org.Hs.eg.db")
+```
+
+## GO BP 
+```{r fig.width=10, fig.height=8, message=FALSE}
+compare.clusters.GO.bp <- compareCluster(
+  geneClusters = dgea.ls.up.entrez.id,
+  fun = "enrichGO",
+  universe = universe$ENTREZID,
+  OrgDb = org.Hs.eg.db,
+  keyType = "ENTREZID",
+  ont = "BP",
+  pAdjustMethod = "BH",
+  readable      = TRUE)
+dotplot(compare.clusters.GO.bp, showCategory =5, font.size = 10, title = "GO BP | pseudobulk RNA assay | logFC > 1.5") + scale_colour_gradient(low="darkgreen", high = "grey") + RotatedAxis()
+```
+
+# Tissue resident memory T
+```{r}
+## Volcano plot for Trm
+Trm <- TNK.simspec.pseudobulk %>% dplyr::filter(cell_names == "CD8+ T:ITGAE+" & PValue < 0.9) # from CD8, CD4 and NK/gdT 
+features <- c("ITGAE", "PDCD1","CD69","ITGA1","HAVCR2","GZMB","CTLA4","KIR2DL4","ENTPD1","LAG3","TNFSF4","TNFRSF9","IFNG","LAYN","FABP5","TIGIT","BAG3","GZMH","PRF1","FASLG", #Trm signature
+                  "CXCR6", "CD101", "CD69", "CD62L",# Trm identity
+                  "CD226","IL26","ID2","IL12RB2","IL23R","ZNF683","BCL2","MYO7A","RBPJ","CXCL13","TNFRSF18","TNFRSF25","SPRY1","MYO1E","GOLIM4","CSGALNACT1","TNS3","ENTPD1","MYO7A","SRGAP3",## up in Trm in breast
+                 "GZMB","GZMA","GZMK","SELL","TCF7","SORL1","PLEK","P2RY8","TC2N","ANK3","ICAM2","PLCG2","CCR7","KLF2","KLRG1","IL7R", # down in Trm in breast
+                 "FCRL3","CCR4","CD28", "LYST", "DTHD1","EOMES",
+                  "PRF1","IL26","IL32","TNF","IFNG","CCL3", "IL18RAP", "RUNX2","CLNK","TIGIT","AFF3")
+
+library(EnhancedVolcano)
+EnhancedVolcano(Trm, x="logFC", y="PValue",
+    lab = Trm$gene,
+    title = "Differentially expressed genes in CD8+ CD103+ (TRM)",
+    selectLab = features,
+    FCcutoff = 0.58, pCutoff = 0.05, pointSize = 4.0, labSize =6.0,drawConnectors = TRUE,
+    col = c("black","black","black", "coral3"),
+    widthConnectors = 0.5, ylim = c(-1,25), xlim = c(-3,4)
+    )
+```
+
+```{r}
+library(EnhancedVolcano)
+EnhancedVolcano(cluster.ITGAE, x="logFC", y="PValue",
+    lab = cluster.ITGAE$gene,
+    title = "Differentially expressed genes in CD8+ CD103+ (TRM)",
+    selectLab = features,
+    FCcutoff = 0.58, pCutoff = 0.05, pointSize = 4.0,labSize =6.0,
+    drawConnectors = TRUE, col = c("black","black","black", "coral3"),
+    widthConnectors = 0.5, ylim = c(-1,25), xlim = c(-4,4)
+    )
+```
+
+# Heatmap of immune checkpoint across all cells
+```{r}
+# Removing outlier samples that was not characterised and ambiguous cells
+sts.seurat <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/sts.simspec_cs.sct.RDS")
+sts.seurat <- subset(sts.seurat, subset = Lv.2.Anno %in% c("unassigned"), invert = T)
+
+# Load genes with additonal annotation 
+immune.genes <- read.table("~/projects/PDAC_non_malignant_cell_types/data/import.files/immune.checkpoint.txt", header = T, sep = "\t")
+genes <- immune.genes %>% pull(Genes) # Extract gene list for plotting
+
+# Getting average expression values from DotPlot function
+# https://github.com/satijalab/seurat/issues/4082
+DefaultAssay(sts.seurat) <- "RNA"
+ddata <- DotPlot(sts.seurat, features = genes, group.by = "Lv.2.Anno", col.max = 20, col.min = -20)
+ddata <- as.data.frame(ddata[["data"]])
+library(tidyr)
+ddata <- ddata %>% drop_na()
+df_spread <- tidyr::spread(ddata[,c(3,4,5)], id, avg.exp.scaled)
+rownames(df_spread) <- df_spread[,1]
+df_spread <- df_spread[,-1]
+mat <- as.matrix(df_spread)
+
+## Row annotation 
+row.anno <- immune.genes[, 1:3]
+rownames(row.anno) <- rownames(mat)
+row.anno$Genes <- NULL
+
+## Column annotation
+col.anno <- read.table("~/projects/PDAC_non_malignant_cell_types/data/import.files/col.anno.txt", header = T, sep = "\t")
+rownames(col.anno) <- colnames(mat)
+col.anno$Level_3_Anno <- NULL
+col.anno$Level_2_Anno <- NULL
+
+## My colors
+my_col <- list(
+  Stimulate.Inhibitory = c(Stimulatory = "darkgreen" , Inhibitory = "#DF7484", Inhibitory.Stimulatory = "#C8AF7C"),
+  Ligand.Receptor = c(Ligand = "#D79655", Receptor = "#8966AA"),
+  Level_1_Anno = c(Lymphoid = "#377EB8", Myeloid = "#CA86DB", 
+                  Stromal = "#8D725F", Endocrine = "#E8A1AE", Acinar = "#E27258", Nerve = "#E4C751",
+                  Epithelial = "#A3C3B6", Malignant_epithelial = "#44A28F"))
+
+## Plotting
+sum(is.infinite(mat)) # to test that there are no infinite valuesum(is.na(mat))
+
+library(pheatmap)
+library(viridisLite)
+paletteLength <- 50
+col <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(paletteLength)
+myBreaks <- c(seq(min(mat), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(mat)/paletteLength, max(mat), length.out=floor(paletteLength/2))) # to keep 0 = white color
+phet <- pheatmap(mat, color = magma(n=101),
+                 breaks=seq(0, 3,length.out=101),
+                 fontsize = 11, cluster_cols = T,
+                 cellheight = 10,
+                 border_color = T,
+                 fontsize_row = 10, cutree_cols = 4, cutree_rows =4,
+                 cellwidth = 10, scale = "none",clustering_method="ward.D2",
+                 annotation_row = row.anno, annotation_col = col.anno ,annotation_colors=my_col)
+```
