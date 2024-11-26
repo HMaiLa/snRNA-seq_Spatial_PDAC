@@ -302,7 +302,7 @@ plotMDS(logCPM_no_batch, pch = 16, col = lymphoid.color[ClstSub$samples$group], 
 clusters <- list()
 
 # Loop through each cluster index (1 to 10)
-for (i in 1:10) {
+for (i in 1:ncls) {
   clusters[[i]] <- de[[i]]$table %>%
     mutate(cluster = i, gene = rownames(.)) %>%
     dplyr::filter(abs(logFC) >= 1, PValue < 0.05)
@@ -335,7 +335,7 @@ levels(subset@meta.data$Lv.2.Anno) <- 1:length(levels(subset@meta.data$Lv.2.Anno
 print(1:length(levels(subset$Lv.2.Anno)))
 ClusterSub <- as.factor(subset@meta.data$Lv.2.Anno) 
 
-PatClust <- paste(subset$Patient_ID, ClusterSub, sep = "_Clst") #labelling each cell with Sample#_Cls#
+PatClust <- paste(subset$Patient_ID, ClusterSub, sep = "_Clst") 
 count <- subset@assays$RNA@counts #dgCMatrix
 count <- as.matrix(count)
 counts <- t(rowsum(t(count), group=PatClust))
@@ -343,8 +343,8 @@ counts <- t(rowsum(t(count), group=PatClust))
 library(limma)
 library(edgeR)
 count.matrix <- DGEList(counts) 
-count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix)) #adding a new column, named Patient 
-count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) #adding a new column, named Cluster
+count.matrix$samples$Patient <- gsub("_Clst.*$","", colnames(count.matrix))
+count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.matrix))) 
 count.matrix$samples$group <- count.matrix$samples$Cluster
 count.matrix #count matrix
 
@@ -352,9 +352,9 @@ ncls <- length(table(ClusterSub))
 N <- 1:ncls #focus on all clusters
 ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% N] 
 
-keep <- filterByExpr(ClstSub, min.count=1, min.total.count=5)  # relaxed filtering a bit, otherwise there are no genes detected in the final results; #min=10, min.total.count=20; or 5/10
+keep <- filterByExpr(ClstSub, min.count=1, min.total.count=5)  
 ClstSub <- ClstSub[keep, , keep=F]
-ClstSub <- calcNormFactors(ClstSub) # to calculate normalisation factors to a algin columns of a count matrix
+ClstSub <- calcNormFactors(ClstSub) 
 ClstSub$samples$group
 
 lymphoid.col <- c("#82CCDE","#778CD3")
@@ -374,18 +374,16 @@ contr <- makeContrasts(
     Cls2 = Cls2,
     levels=design)
 
-ctest.GZMK <- glmQLFTest(qfit, contrast=contr[,1]) #column 1 corresponded to column1
+ctest.GZMK <- glmQLFTest(qfit, contrast=contr[,1]) 
 ctest.ITGAE <- glmQLFTest(qfit, contrast=contr[,2])
 
 #log-CPM
 prior.count <- 1
-ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) #calculating cpm
+ClstSub.cpm <- edgeR::cpm(ClstSub, log=T, prior.count=prior.count) 
 
 # Remove batch effect on log-CPM
 # Ref: https://rdrr.io/github/richierocks/limma2/man/removeBatchEffect.html
 logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch = Pat, group = Cls) # following example on ?removeBatchEffect in R
-# boxplot(as.data.frame(ClstSub.cpm),main="Original")
-# boxplot(as.data.frame(logCPM_no_batch),main="Batch corrected")
 plotMDS(logCPM_no_batch, pch = 16, col = lymphoid.col[ClstSub$samples$group], main="Pseudo-bulk samples")
 
 ### Extracting data table ###
