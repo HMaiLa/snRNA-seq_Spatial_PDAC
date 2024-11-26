@@ -1,0 +1,265 @@
+---
+title: "STS_CellphoneDB.Rmd"
+author: "Mai La"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Installing packages
+```{r cars}
+library(Seurat)
+library(schex)
+library(ggplot2)
+library(shiny)
+library(dplyr)
+library(patchwork)
+library(rmarkdown)
+library(openxlsx)
+```
+
+# Re-annotated after completion of non-malignant analysis - Simspec
+```{r}
+lymphoid <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/lymphoid.simspec.RDS")
+B <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "B") %>% pull(Cell_Ids)
+BGC <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "B:GC") %>% pull(Cell_Ids)
+CD3 <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD3+ T") %>% pull(Cell_Ids)
+Tccr7 <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD4+ T:CCR7+") %>% pull(Cell_Ids)
+Tfh <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD4+ T:CXCL13+") %>% pull(Cell_Ids)
+Treg <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD4+ T:FOXP3+") %>% pull(Cell_Ids)
+Til7r <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD4+ T:IL7R+") %>% pull(Cell_Ids)
+Teff <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD8+ T:GZMK+") %>% pull(Cell_Ids)
+CD8IL7R <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD8+ T:IL7R+") %>% pull(Cell_Ids)
+Trm <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "CD8+ T:ITGAE+") %>% pull(Cell_Ids)
+gdT <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "gdT") %>% pull(Cell_Ids)
+NK <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "NK") %>% pull(Cell_Ids)
+Plasma <- lymphoid@meta.data %>% dplyr::filter(Lv.2.Anno == "Plasma") %>% pull(Cell_Ids)
+
+myeloid <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/myeloid.nonintegrated.RDS")
+cDC1 <- myeloid@meta.data %>% dplyr::filter(Lv.2.Anno == "cDC1") %>% pull(Cell_Ids)
+cDC2 <- myeloid@meta.data %>% dplyr::filter(Lv.2.Anno == "cDC2") %>% pull(Cell_Ids)
+cyling <- myeloid@meta.data %>% dplyr::filter(Lv.2.Anno == "Cycling myeloid") %>% pull(Cell_Ids)
+lDC <- myeloid@meta.data %>% dplyr::filter(Lv.2.Anno == "Langerhans-like DCs") %>% pull(Cell_Ids)
+Mast <- myeloid@meta.data %>% dplyr::filter(Lv.2.Anno == "Mast") %>% pull(Cell_Ids)
+migDC <- myeloid@meta.data %>% dplyr::filter(Lv.2.Anno == "Migratory DCs") %>% pull(Cell_Ids)
+
+mac <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/mac.only.simspec.RDS")
+#TAMs <- mac@meta.data %>% dplyr::filter(Lv.2.Anno == "TAMs") %>% pull(Cell_Ids)
+C1QC <- mac@meta.data %>% dplyr::filter(Lv.2.Anno == "TAMs_C1QC+") %>% pull(Cell_Ids)
+Clec5a <- mac@meta.data %>% dplyr::filter(Lv.2.Anno == "TAMs_MHC_II") %>% pull(Cell_Ids)
+olr1 <-  mac@meta.data %>% dplyr::filter(Lv.2.Anno == "TAMs_OLR1+") %>% pull(Cell_Ids)
+spp1 <- mac@meta.data %>% dplyr::filter(Lv.2.Anno == "TAMs_SPP1+") %>% pull(Cell_Ids)
+
+endo <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/endo.RDS")
+endothelial <- endo@meta.data %>% dplyr::filter(cell_names %in% c("Endothelial:Angiogenic tip cells","Endothelial:reactive EndMT","Endothelial:Stalk-like","Endothelial:Tip-like")) %>% pull(Cell_Ids)
+LEC <-  endo@meta.data %>% dplyr::filter(cell_names == "Lymphatic endothelial") %>% pull(Cell_Ids)
+
+sts.non.malignant <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/sts.nonmalignant.RDS")
+acinar <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Acinar") %>% pull(Cell_Ids)
+adm <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Acinar-Ductal") %>% pull(Cell_Ids)
+ductal <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Ductal epithelial") %>% pull(Cell_Ids)
+muc5b <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Ductal_MUC5B+") %>% pull(Cell_Ids)
+endocrine <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Endocrine") %>% pull(Cell_Ids)
+FDCs <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "FDCs") %>% pull(Cell_Ids)
+FRCs <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "FRCs") %>% pull(Cell_Ids)
+pericytes <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Pericytes") %>% pull(Cell_Ids)
+schwann <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Schwann") %>% pull(Cell_Ids)
+tuft <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Tuft") %>% pull(Cell_Ids)
+tuft.mal <- sts.non.malignant@meta.data %>% dplyr::filter(Lv.2.Anno == "Tuft.persistent") %>% pull(Cell_Ids)
+
+fib.only <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/fib.only.simspec.RDS")
+MYO <- fib.only@meta.data %>% dplyr::filter(Lv.2.Anno %in% c("CAFs_MYO_s1","CAFs_MYO_s2")) %>% pull(Cell_Ids)
+CXCL14 <- fib.only@meta.data %>% dplyr::filter(Lv.2.Anno %in% c("CAFs_MYO_s3")) %>% pull(Cell_Ids)
+NRT <- fib.only@meta.data %>% dplyr::filter(Lv.2.Anno == "CAFs_NRT") %>% pull(Cell_Ids)
+vSMC <- fib.only@meta.data %>% dplyr::filter(Lv.2.Anno == "Vascular smooth muscle") %>% pull(Cell_Ids)
+```
+
+# Assign Lv.2.Anno into sts.object
+```{r}
+
+metadata <- sts.simspec_css.sample.sct.Aug24@meta.data %>% as.data.frame() #Creating a data frame called metadata
+metadata$S_CB <- rownames(metadata)#Assigning S_CB as a new column (CB=cell barcode)
+metadata %>% mutate(Lv.2.Anno = case_when(Cell_Ids %in% MYO ~ "CAFs_MYO", 
+                                          Cell_Ids %in% NRT ~ "CAFs_NRT",
+                                          Cell_Ids %in% CXCL14 ~ "CAFs_CXCL14+",
+                                          Cell_Ids %in% vSMC ~ "vSMC",
+                                          Cell_Ids %in% pericytes ~ "Pericytes",
+                                          Cell_Ids %in% schwann ~ "Schwann",
+                                          Cell_Ids %in% FDCs ~ "FDCs",
+                                          Cell_Ids %in% FRCs ~ "FRCs",
+                                          Cell_Ids %in% endocrine ~ "Endocrine",
+                                          Cell_Ids %in% tuft ~ "Tuft",
+                                          Cell_Ids %in% tuft.mal ~ "Tuft.persistent",
+                                          Cell_Ids %in% endothelial ~ "Endothelial",
+                                          Cell_Ids %in% LEC ~ "Lymphatic endothelial",
+                                          Cell_Ids %in% acinar ~ "Acinar",
+                                          Cell_Ids %in% adm ~ "Acinar-Ductal",
+                                          Cell_Ids %in% ductal ~ "Ductal",
+                                          Cell_Ids %in% muc5b ~ "Ductal MUC5B+",
+                                          Cell_Ids %in% B ~ "B",
+                                          Cell_Ids %in% BGC ~ "B:GC",
+                                          #Cell_Ids %in% Bnaive ~ "B:naive",
+                                          Cell_Ids %in% CD3 ~ "CD3+ T",
+                                          Cell_Ids %in% gdT ~ "gdT",
+                                          Cell_Ids %in% NK ~ "NK",
+                                          Cell_Ids %in% Plasma ~ "Plasma",
+                                          Cell_Ids %in% Tccr7 ~ "CD4+ T:CCR7+",
+                                          Cell_Ids %in% CD8IL7R ~ "CD8+ T:IL7R+",
+                                          Cell_Ids %in% Teff ~ "CD8+ T:GZMK+",
+                                          Cell_Ids %in% Tfh ~ "CD4+ T:CXCL13+",
+                                          Cell_Ids %in% Til7r ~ "CD4+ T:IL7R+",
+                                          Cell_Ids %in% Treg ~ "CD4+ T:FOXP3+",
+                                          Cell_Ids %in% Trm ~ "CD8+ T:ITGAE+",
+                                          Cell_Ids %in% C1QC ~ "TAMs_C1QC+",
+                                          Cell_Ids %in% cDC1 ~ "cDC1",
+                                          Cell_Ids %in% cDC2 ~ "cDC2",
+                                          Cell_Ids %in% Clec5a ~ "TAMs_HLA+",
+                                          Cell_Ids %in% cyling ~ "Cycling myeloid",
+                                          Cell_Ids %in% lDC ~ "Langerhans-like DCs",
+                                          Cell_Ids %in% Mast ~ "Mast",
+                                          Cell_Ids %in% migDC ~ "Migratory DCs",
+                                          Cell_Ids %in% olr1 ~ "TAMs_OLR1+",
+                                          Cell_Ids %in% spp1 ~ "TAMs_SPP1+",
+                                          #Cell_Ids %in% TAMs ~ "TAMs", # remove this, patient-specific TAMs
+                                          #Cell_Ids %in% tymp ~ "TAMs_TYMP",
+                                          simspec_cell_class == "PDAC" ~ "PDAC",
+                                          simspec_cell_class == "Malignant acinar" ~ "Malignant acinar",
+                                          simspec_cell_class == "PDA_OLGC" ~ "PDA_OLGC",
+                                          TRUE ~ "unassigned")) -> metadata
+metadata %>% group_by(Lv.2.Anno) %>% count(Lv.2.Anno) %>% print(n=45)
+Lv.2.Anno <- metadata$Lv.2.Anno 
+names(Lv.2.Anno) <- metadata$Lv.2.Anno
+sts.simspec_css.sample.sct.Aug24 <- AddMetaData(object = sts.simspec_css.sample.sct.Aug24, metadata = Lv.2.Anno, col.name = "Lv.2.Anno")
+saveRDS(sts.simspec_css.sample.sct.Aug24, file = "~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/sts.simspec_cs.sct.RDS")
+```
+
+# Trying to redo with the whole dataset - CAN'T DO, don't even have enough memory to save the counts
+Need to downsample
+```{r}
+sts.simspec.seurat <- readRDS("../sts.simspec_css.sample.sct.Aug24.RDS")
+# DietSeurat
+DefaultAssay(sts.simspec.seurat) <- "RNA"
+sts.simspec.seurat <- DietSeurat(sts.simspec.seurat, assays = "RNA", data = TRUE, counts = TRUE)
+
+# to remove additional columns & because we need to split individual samples and redo the SCT, so we need to remove the "^_SCT"
+colnames(sts.simspec.seurat[[]]) #check which columns to remove
+sts.simspec.seurat[["nCount_SCT"]] <- NULL
+sts.simspec.seurat[["nFeature_SCT"]] <- NULL
+sts.simspec.seurat[["seurat_clusters"]] <- NULL
+sts.simspec.seurat[["SCT_snn_res.0.8"]] <- NULL
+sts.simspec.seurat[["SCT_snn_res.0.9"]] <- NULL
+sts.simspec.seurat[["SCT_snn_res.1"]] <- NULL
+sts.simspec.seurat[["SCT_snn_res.1.1"]] <- NULL
+sts.simspec.seurat[["SCT_snn_res.1.2"]] <- NULL
+
+#Removing outliers
+sts.simspec.seurat <- subset(sts.simspec.seurat, subset = Patient_ID %in% c("1959","2185"), invert = T)
+sts.simspec.seurat$Patient_ID <- droplevels(sts.simspec.seurat$Patient_ID)
+
+# Removing unwanted cells
+sts.simspec.seurat <- subset(sts.simspec.seurat, subset = Lv.2.Anno %in% c("PDA_OLGC","unassigned"), invert=T)
+
+# Downsampling
+sts.simspec.seurat
+Idents(sts.simspec.seurat) <- "Lv.2.Anno"
+sts.seurat <- subset(sts.simspec.seurat, downsample=500) 
+
+# metadata
+table(sts.seurat@meta.data$Lv.2.Anno) 
+sts.seurat@meta.data$Cell = rownames(sts.seurat@meta.data)
+df = sts.seurat@meta.data[,c("Cell","Lv.2.Anno")]
+write.table(df, file ='~/CellphoneDB/sts.final.tsv', sep = '\t', quote = F, row.names = F) 
+
+# counts
+Idents(sts.seurat) <- "Lv.2.Anno"
+DefaultAssay(sts.seurat) <- "RNA"
+sts.seurat <- NormalizeData(sts.seurat, normalization.method = "LogNormalize", scale.factor = 10000) #catergorial
+
+sts_counts <- as.data.frame(sts.seurat@assays$RNA@data)
+sts_counts <- sts_counts[rowSums(sts_counts[,2:dim(sts_counts)[2]])!=0,] 
+sts_counts$gene <- rownames(sts_counts)
+rownames(sts_counts) <- NULL 
+sts_counts <- sts_counts %>% relocate(gene)
+write.table(sts_counts, "~/CellphoneDB/sts_counts.tsv",sep = '\t', quote = F, row.names = F)
+saveRDS(sts.seurat, file = "../sts.seurat.simspec.small.RDS")
+```
+
+# Codes run in python
+```{r}
+cellphonedb method statistical_analysis \
+sts.final.tsv \
+sts_counts.tsv \
+--counts-data hgnc_symbol \
+--threads 30  \
+--output-path sts.simspec.small.out/
+```
+
+# Loading CellphoneDB results
+```{r}
+library(ktplots)
+# Importing results
+pvals <- read.delim("~/CellphoneDB/sts.simspec.small.out/pvalues.txt", check.names = FALSE)
+means <- read.delim("~/CellphoneDB/sts.simspec.small.out/means.txt", check.names = FALSE)
+deconvoluted <- read.delim("~/CellphoneDB/sts.simspec.small.out/deconvoluted.txt", check.names = FALSE)
+sig.means <- read.delim("~/CellphoneDB/sts.simspec.small.out/significant_means.txt", check.names = FALSE)
+
+# filter the list containing interaction pair with collagen
+means.filtered <- means[!grepl("COL*.", means$gene_a), ]
+pvals.filtered <- pvals[!grepl("COL*.", pvals$gene_a), ]
+decon.filtered <- deconvoluted[!grepl("COL*.", pvals$gene_a), ]
+
+library(Seurat)
+sts.seurat.small <- readRDS("../sts.seurat.simspec.small.RDS")
+```
+
+# Example PLOTTING
+## Tuft & ADM
+```{r}
+plot_cpdb(cell_type1 = 'Tuft', 
+               cell_type2 = 'Acinar-Ductal|Ductal MUC5B+|PDAC',
+               scdata = sts.seurat.small,
+               idents = 'Lv.2.Anno', 
+	             means = means.filtered, 
+               pvals = pvals.filtered,
+               #gene.family =  c( "chemokines","costimulatory"),
+               genes = c("BDNF","FGF2","NTRK2","TNFRSF10A","LGALS9","MDK","MST1","WNT9A","NRG3","SEMA3C"), # these are molecules expressed by Tuft
+	             highlight = "black", highlight_size = 0.5,
+               keep_significant_only = T) +
+small_axis(fontsize =10) + small_grid() + small_guide() + small_legend(fontsize = 5, keysize = 0.6) 
+```
+
+```{r}
+# to focus on key interactions to plot
+ddata <- as.data.frame(d[["data"]])
+ddata <- ddata %>% filter(pvals < 0.05) # to make sure they are all significant interactions
+data <- ddata %>% filter(scaled_means > 1.0)
+
+# Filter rows with NA interactions & rows with NA P-value
+data <- data %>% filter(pvals == "0.001")
+
+df_spread <- tidyr::spread(data[,c(1,2,3)], Var2, scaled_means)
+rownames(df_spread) <- df_spread[,1]
+df_spread <- df_spread[,-1]
+
+df_spread <- df_spread %>%
+  mutate_all(funs(ifelse(is.na(.), 0, .)))
+
+mat <- as.matrix(df_spread)
+sum(is.infinite(mat)) # to test that there are no infinite values
+sum(is.na(mat))
+
+library(pheatmap)
+library(viridisLite)
+col <- rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu"))
+
+paletteLength <- 30
+col <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(paletteLength)
+myBreaks <- c(seq(min(mat), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(mat)/paletteLength, max(mat), length.out=floor(paletteLength/2)))
+
+phet <- pheatmap(mat, color = viridis(n=50),
+                 fontsize = 12,cellheight = 10,border_color = T, 
+                 fontsize_row = 11, cutree_cols = 1, cutree_rows = 1,
+                 cellwidth =15, scale = "none")
+```
