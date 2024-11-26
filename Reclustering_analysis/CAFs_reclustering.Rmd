@@ -20,8 +20,7 @@ fib.col <- distinctColorPalette(5)
 fib.col <- c("#E09470","#A4D7C6","#BAA3D3","#DCC179") #,"#C05BD1")
 fib.color <- setNames(object = fib.col, nm=c("CAFs_MYO","CAFs_CXCL14+", "CAFs_NRT","Vascular smooth muscle")) 
 
-pat.col <- c("#6DE8B7","#D741E1","#B4E1CF","#DEB8E0","#DD4A8C","#7F9F32","#C3EAB4" ,"#7B67E0" ,"#D8E746" ,"#CEE982" ,"#DE73DA" ,"#92A36F" ,"#67C0D8" ,"#E1A497" ,"#E76356" ,"#62A4DB", "#D79655" ,"#8966AA", "#9899E8" ,"#6EE9E7","#E4C751","#E7E3DA" ,"#E08FC1" ) #,"#8D747A") #
-#"#67B39D" ,"#E7D59B") "#76E74A" "#6E33E0" ,"#B8C9E4" ,"#7AE07E" 
+pat.col <- c("#6DE8B7","#D741E1","#B4E1CF","#DEB8E0","#DD4A8C","#7F9F32","#C3EAB4" ,"#7B67E0" ,"#D8E746" ,"#CEE982" ,"#DE73DA" ,"#92A36F" ,"#67C0D8" ,"#E1A497" ,"#E76356" ,"#62A4DB", "#D79655" ,"#8966AA", "#9899E8" ,"#6EE9E7","#E4C751","#E7E3DA" ,"#E08FC1" ) 
 pat.color <- setNames(object = pat.col, nm=c("ICGC_0017", "ICGC_0020", "ICGC_0021", "ICGC_0026", "ICGC_0033", "ICGC_0034", "ICGC_0043", "ICGC_0051", "ICGC_0053","ICGC_0061", "ICGC_0066", "ICGC_0067", "ICGC_0075", "ICGC_0087", "ICGC_0103","ICGC_0105", "ICGC_0115", "ICGC_0203", "ICGC_0215", "ICGC_0235", "ICGC_0304", "ICGC_0391", "ICGC_0415"))
 ```
 
@@ -36,7 +35,7 @@ sample.high.fib <- as.data.frame(sts.non.malignant@meta.data) %>%
                                  pull(Sample) %>% 
                                  as.character()
 fib.only <- sts.non.malignant %>% subset(subset = Sample %in% sample.high.fib & 
-                             Lv.2.Anno == "CAFs") # to make sure our population of CAFs is as pure as possible
+                             Lv.2.Anno == "CAFs")
 fib.only <- fib.only %>% subset(subset = cell_class == "CAFs" & simspec_cell_class == "CAFs")
 
 # DietSeurat
@@ -58,7 +57,7 @@ fib.only <- subset(fib.only, subset = Sample %in% c("1959","2185"), invert = T)
 fib.only$Sample <- droplevels(fib.only$Sample)
 
 # SCTRANFORM
-fib.only <- SplitObject(fib.only, split.by = "Sample") #we split by Sample instead of Patient because some samples derived from same patient are sequenced at different batch
+fib.only <- SplitObject(fib.only, split.by = "Sample") 
 fib.only <- lapply(fib.only, FUN= SCTransform, vst.flavor="v2", assay = "RNA",
               variable.features.n = 3000)
 
@@ -72,7 +71,7 @@ VariableFeatures(fib.only.simspec_css.sample.sct) <- int.features.split
 
 # PCA 
 fib.only.simspec_css.sample.sct <- RunPCA(fib.only.simspec_css.sample.sct, verbose = TRUE, assay = "SCT",
-                                  npcs = 30) #default npcs = 50
+                                  npcs = 30) 
 
 library(simspec)
 fib.only.simspec_css.sample.sct <-
@@ -96,12 +95,12 @@ fib.only.simspec_css.sample.sct <- FindNeighbors(fib.only.simspec_css.sample.sct
                                          dims = 1:ncol(Embeddings(fib.only.simspec_css.sample.sct, "css")))
 
 fib.only.simspec_css.sample.sct <- FindClusters(fib.only.simspec_css.sample.sct, algorithm = 3,resolution = seq(0.1, 1, by = 0.1))
-#stable res at 0.5
 
 library(clustree)
 clustree::clustree(fib.only.simspec_css.sample.sct)
 
-DimPlot(fib.only.simspec_css.sample.sct, group.by = "SCT_snn_res.0.1", label = T) + DimPlot(fib.only.simspec_css.sample.sct, group.by = "Lv.2.Anno",label = T)
+DimPlot(fib.only.simspec_css.sample.sct, group.by = "SCT_snn_res.0.1", label = T) + 
+  DimPlot(fib.only.simspec_css.sample.sct, group.by = "Lv.2.Anno",label = T)
 
 Idents(fib.only.simspec_css.sample.sct) <- "SCT_snn_res.0.1" 
 
@@ -114,10 +113,10 @@ DotPlot(fib.only.simspec_css.sample.sct, features = top) + scale_color_gradient2
 
 metadata <- fib.only.simspec@meta.data %>% as.data.frame() 
 metadata$S_CB <- rownames(metadata)
-metadata %>% mutate(Lv.2.Anno_condense = case_when(SCT_snn_res.0.1 %in% c("0","2") ~ "CAFs_MYO", # No ACTA2
-                                          SCT_snn_res.0.1 == "4" ~ "Vascular smooth muscle", #check
+metadata %>% mutate(Lv.2.Anno_condense = case_when(SCT_snn_res.0.1 %in% c("0","2") ~ "CAFs_MYO", 
+                                          SCT_snn_res.0.1 == "4" ~ "Vascular smooth muscle", 
                                           SCT_snn_res.0.1 == "3" ~ "CAFs_CXCL14+",
-                                          SCT_snn_res.0.1 == "1" ~ "CAFs_NRT", #check
+                                          SCT_snn_res.0.1 == "1" ~ "CAFs_NRT",
                                           )) -> metadata
 metadata %>% group_by(SCT_snn_res.0.1) %>% dplyr::count(Lv.2.Anno_condense)
 Lv.2.Anno_condense <- metadata$Lv.2.Anno_condense 
@@ -128,9 +127,9 @@ saveRDS(fib.only.simspec_css.sample.sct, file = "../fib.only.simspec.RDS")
 
 # iCAFs DEG
 ```{r}
-# Tuvenson's CAF program
+# Tuvenson's CAF program - Elyada et al., 2019 DOI: 10.1158/2159-8290.CD-19-0094
 iCAFs.deg <- c("C3", "DUSP1", "FBLN1", "LMNA", "CLU","CCDC80","MYC", "EFEMP1","HAS1","NR4A1","CFD","ANXA1","CXCL12","FGF7","KLF4", "EMP1","GPRC5A",
-           "SRPX", "MT2A","MEDAG","IGF1","MGST1","MCL1","CEBPD","S100A10","UAP1","TNXB","CEBPB","PNRC1","SOCS3","PTGDS","FOSB","NFKBIA","CXCL2","THBS1","CCL2", "OGN","GSN","DPT","PLA2G2A","NAMPT","ITM2A","RGCC","JUND","NNMT","ZFP36","PIM1","CPE","GFPT2","SOD2","KDM6B","FSTL1","FBLN2","NR4A3","MFAP5","ABL2","SGK1","CILP","UGDH","FBLN5","ADAMTS1","ADH1B","WISP2","GPX3","S100A4","IL6","HAS2","PLAC9","IGFBP6","FBN1","BDKRB1","TPPP3","RASD1","MT1A","CXCL14","PI16","APOE","IL8","ARC","PTX3","TNFAIP6","MT1E","MT1X","CXCL1") # these are all the upDEGs
+           "SRPX", "MT2A","MEDAG","IGF1","MGST1","MCL1","CEBPD","S100A10","UAP1","TNXB","CEBPB","PNRC1","SOCS3","PTGDS","FOSB","NFKBIA","CXCL2","THBS1","CCL2", "OGN","GSN","DPT","PLA2G2A","NAMPT","ITM2A","RGCC","JUND","NNMT","ZFP36","PIM1","CPE","GFPT2","SOD2","KDM6B","FSTL1","FBLN2","NR4A3","MFAP5","ABL2","SGK1","CILP","UGDH","FBLN5","ADAMTS1","ADH1B","WISP2","GPX3","S100A4","IL6","HAS2","PLAC9","IGFBP6","FBN1","BDKRB1","TPPP3","RASD1","MT1A","CXCL14","PI16","APOE","IL8","ARC","PTX3","TNFAIP6","MT1E","MT1X","CXCL1") # these are all the upDEGs reported
 
 DefaultAssay(stromal.subsets) <- "RNA"
 stromal.subsets <- subset(stromal.subsets, subset = Lv.3.Anno == "unassigned", invert = T)
@@ -138,7 +137,7 @@ stromal.subsets <- subset(stromal.subsets, subset = Lv.3.Anno == "unassigned", i
 # Extract mean expression from dotplot function
 df <- DotPlot(stromal.subsets, group.by = "Lv.3.Anno", features = iCAFs.deg, col.min = -2, col.max = 10) + RotatedAxis()
 df <- as.data.frame(df[["data"]])
-df <- df %>% filter(!is.na(features.plot)) # removing rows with NA
+df <- df %>% filter(!is.na(features.plot)) 
 df_spread <- tidyr::spread(ddata[,c(3,4,5)], id, avg.exp.scaled)
 rownames(df_spread) <- df_spread[,1]
 df_spread <- df_spread[,-1]
@@ -170,7 +169,7 @@ stromal <- list()
 stromal$quiescent.stellates <- c("PDGFRB","SPARC","GJA4","CSPG4","EDNRB","RGS5","COL4A1")
 stromal$activated.stellates <- c("COL1A1","FN1","THY1","LUM","TIMP1","MMP2")
 stromal$immune.activated.stellates <- c("CXCL8","INHBA","FGF2","IL6","CSF3", "CXCL3","IL33")
-stromal$Schwann.cells <-c("SOX10", "S100B" ,"CRYAB","NGFR","PLP1","PMP22")
+stromal$Schwann.cells <-c("SOX10","S100B" ,"CRYAB","NGFR","PLP1","PMP22","CDH19") #adding CDH19 from Tosti
 
 #https://www.nature.com/articles/s41588-022-01134-8 \
 stromal$MYO <-c("ADAMTS12","CASC15","POSTN","NTM","LINC01429","NREP","PDGFC","LEF1","NUAK1","COL1A1","KIF26B")
@@ -179,15 +178,16 @@ stromal$ADH.F <- c("NFATC2","EMP1","MIR222HG","SAMD4A","LMNA","GPRC5A","MMP19","
 stromal$IMM <- c("SLC22A3", "XKR4","ANKRD29","SLCO2B1","LAMA3","ABCC3","LAMC2","GRIN2B","RBM47","NOL4")
 
 #doi: 10.1158/2159-8290.CD-19-094
-stromal$iCAFs <- c("PLA2G2A","MCL1","S100A10","S100A4","LMNA","UAP1","DPT","ABL2","EFEMP1","TNFAIP6","FBLN2","CCDC80","FSTL1","PTX3","UGDH","IL8","CXCL1","CXCL2","ADH1B","CPE")
+stromal$iCAFs <- c("IL6","PDPN","PDGFRA","CXCL12","CFD","DPT","LMNA","HAS1","AGTR1","CXCL1","CXCL2","CCL2")
+#stromal$iCAFs <- c("PLA2G2A","MCL1","S100A10","S100A4","LMNA","UAP1","DPT","ABL2","EFEMP1","TNFAIP6","FBLN2","CCDC80","FSTL1","PTX3","UGDH","IL8","CXCL1","CXCL2","ADH1B","CPE")
 stromal$myCAFs <- c("HOPX","IGFBP7","COL10A1","INHBA","CALD1","BGN","CTHRC1","TPM2","ACTA2","TAGLN","POSTN","TPM1","GRP","CST1","MYL9","MMP11")
 stromal$apCAFs <- c("CD74","SAA3","SLPI", "HLA-DQA1", "HLA-DRA","HLA-DPA1")
 
 #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8404474/pdf/JEM_20210790.pdf
 stromal$FDCs <- c("CR1","CR2","MFGE8","VCAM1","CXCL13","SLC1A2","RGS9","MATN2","VCAM1")
-stromal$FRCs <- c("PDGFRA","PDPN","LTBR","IL1R1","GPRC5A","HAS1","CFB") # used combined genes from the study plus genes from PC12 
+stromal$FRCs <- c("PDGFRA","PDPN","LTBR","VCAM1","TNFSF14","IL1R1") 
 
-DimPlot(stromal.subsets, group.by = "Lv.3.Anno")
+table(stromal.subsets$Lv.3.Anno)
 
 DefaultAssay(stromal.subsets) <- "RNA"
 Idents(stromal.subsets) <- "Lv.3.Anno"
@@ -205,7 +205,6 @@ FeaturePlot(stromal.subsets,
             keep.scale = "all") 
 
 # Plotting/visualisation
-VlnPlot(stromal.subsets, features = stromal.markers.names, cols = stromal.color)
 df <- DotPlot(stromal.subsets, features = stromal.markers.names, scale = F) + RotatedAxis()
 
 df <- as.data.frame(df[["data"]])
@@ -214,7 +213,7 @@ df_spread <- na.omit(df_spread)
 rownames(df_spread) <- df_spread[,1]
 df_spread <- df_spread[,-1]
 mat <- as.matrix(df_spread)
-sum(is.infinite(mat)) # to test that there are no infinite values
+sum(is.infinite(mat)) 
 sum(is.na(mat))
 
 library(pheatmap)
@@ -225,7 +224,7 @@ phet <- pheatmap(mat,
                  cellheight = 15, 
                  cluster_cols = T,
                  border_color = "grey", 
-                 fontsize_row = 12, cutree_cols = 1, cutree_rows = 3,
+                 fontsize_row = 12, cutree_cols = 1, cutree_rows =4,
                  cellwidth = 15, scale = "none")
 ```
 

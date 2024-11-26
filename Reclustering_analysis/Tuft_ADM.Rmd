@@ -1,7 +1,6 @@
 ---
 title: "Figure_2_Tuft_ADM.Rmd"
-author: "Mai La"
-date: '2024-11-06'
+author: "Hue M. La"
 output: html_document
 ---
 
@@ -12,7 +11,6 @@ knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = "
 # Installing packages
 ```{r Packages}
 library(Seurat)
-library(schex)
 library(ggplot2)
 library(shiny)
 library(dplyr)

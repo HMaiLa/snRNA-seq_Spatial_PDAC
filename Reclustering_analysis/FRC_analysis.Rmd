@@ -26,20 +26,20 @@ fib.color <- setNames(object = fib.col, nm=c("CAFs_MYO","CAFs_CXCL14+", "CAFs_NR
 fib <- sts.non.malignant %>% subset(subset = Lv.1.Anno %in% c("CAFs", "Schwann","Pericytes", "FRCs","FDCs"))
 
 Idents(fib) <- "Lv.1.Anno"
-DimHeatmap(sts.non.malignant, dims = 12, cells=500, balanced = T) # PC = 12
-DimHeatmap(fib, dims = 12, cells=500, balanced = T, raster = F, nfeatures = 40) # PC = 12
+DimHeatmap(sts.non.malignant, dims = 12, cells=500, balanced = T) 
+DimHeatmap(fib, dims = 12, cells=500, balanced = T, raster = F, nfeatures = 40) 
 
 DimPlot(fib,
         label = TRUE,
         reduction = "pca", cols = stromal.color,
         group.by = "Lv.1.Anno",
-        dim= c(1, 12)) + NoLegend() # PC = 2 defined CAFs
+        dim= c(1, 12)) + NoLegend() 
 
 DimPlot(fib,
         label = TRUE,
         reduction = "pca",
         group.by = "Patient_ID",
-        dim= c(1, 12)) + NoLegend() # PC = 2 defined CAFs
+        dim= c(1, 12)) + NoLegend() 
 
 DimHeatmap(sts.non.malignant, dims = 1:12, cells=500, balanced = T) # PC = 12
 
@@ -127,7 +127,7 @@ EnhancedVolcano(FRCs.deg.all, x="logFC", y="PValue",
     lab = FRCs.deg.all$gene,
     title = "Differentially expressed genes in fibroblastic reticular cells (FRCs)",
     selectLab = features,
-    FCcutoff = 1.25, # Reduced cut off for due to small differences 
+    FCcutoff = 1.25, 
     pCutoff = 0.05,
     pointSize = 4.0,
     labSize = 5.0,
