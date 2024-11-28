@@ -1,0 +1,355 @@
+```{r}
+# Analysis was performed using scanpy and squidpy analysis workflow
+# Results were imported for plotting in R
+library(dplyr)
+library(ggpubr)
+library(tidyverse)
+library(Seurat)
+library(rstatix)
+```
+
+## On a list of samples - using function
+```{r}
+# Min-max normalisation function
+min_max_normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+process_file <- function(filename) {
+  df <- readr::read_csv(filename)
+  df <- as.data.frame(df)
+  names(df)[1] <- "Cellclass"
+  rownames(df) <- df$Cellclass
+  df <- df[, -1]
+  return(df)
+}
+
+nhood <- c(
+  "data/import.files/NhoodEnrichment/P10614_1_50um.csv",
+  "data/import.files/NhoodEnrichment/P10614_2_50um.csv", 
+  "data/import.files/NhoodEnrichment/P10614_3_50um.csv",
+  #"data/import.files/NhoodEnrichment/P10614_4_50um.csv", # REMOVED as this sample has <5% tumour cells
+  "data/import.files/NhoodEnrichment.v2/P10617_1_50um_v2.csv",
+  "data/import.files/NhoodEnrichment/P10617_2_50um.csv",
+  "data/import.files/NhoodEnrichment/P10617_3_50um.csv",
+  "data/import.files/NhoodEnrichment.v2/P10617_4_50um_v2.csv"
+)
+```
+
+### Updating labels
+```{r}
+# Combined all into a list of table
+processed.df <- lapply(nhood, process_file) #update colnames in the section 
+
+processed.df[[1]] <- processed.df[[1]] %>% rename("Ductal_MUC5B+" = `Ductal_MUC5B+/MUC6+`, "CAFs_MYO" = MYO_CAFs, "CAFs_MYO_CXCL14+" = `MYO_CXCL14+_CAFs`, "CAFs_NRT" = NRT_CAFs, "Pericytes" = `Vascular smooth muscle`, "TAMs_SPP1+/OLR1+" = TAMs_s1, "TAMs_C1QC+" = TAMs_s2)
+label <- colnames(processed.df[[1]]) %>% as.character()
+rownames(processed.df[[1]]) <- label
+
+processed.df[[2]] <- processed.df[[2]] %>% rename("Acinar_REG+" = `Acinar_REG`) 
+label <- colnames(processed.df[[2]]) %>% as.character()
+rownames(processed.df[[2]]) <- label
+
+processed.df[[3]] <- processed.df[[3]] %>% rename("TAMs_SPP1+/OLR1+" = `Tam_OLR1+`, "CAFs_MYO" = myCAFs) 
+label <- colnames(processed.df[[3]]) %>% as.character()
+rownames(processed.df[[3]]) <- label
+
+processed.df[[4]] <- processed.df[[4]] %>% rename("TAMs_SPP1+/OLR1+" = `TAM_SPP1+_OLR1+`, "TAMs_C1QC+" = `TAM_C1QC+`)
+label <- colnames(processed.df[[4]]) %>% as.character()
+rownames(processed.df[[4]]) <- label
+
+processed.df[[5]] <- processed.df[[5]] %>% rename("T/NK" = `CD2+_IL7R+_CCL5+`)
+label <- colnames(processed.df[[5]]) %>% as.character()
+rownames(processed.df[[5]]) <- label
+```
+
+## Nhood on whole section
+```{r}
+# Function to specify row name of interest and normalize
+process_df <- function(df, row_name) {
+  row <- df[row_name, , drop = FALSE]
+  row_normalized <- as.data.frame(t(min_max_normalize(as.numeric(row))))
+  names(row_normalized) <- names(row)
+  return(row_normalized)
+}
+
+# Specify the row name of interest
+row_name <- "TAMs_C1QC+"
+
+# Apply the function to each data frame in the list
+normalized_data_list <- lapply(processed.df, function(df) process_df(df, row_name))
+
+# Plotting
+combined_df <- bind_rows(normalized_data_list)
+
+# Selecting cell classes for plotting
+table <- combined_df[, c(6:15,18,20)] # selecting for malignant plot
+table <- combined_df[, c(4:17,20,22)] # selecting for Spp1+/OLR1+
+table <- combined_df[, c(4:16,20)] # selecting for C1QC+
+
+table <- table %>% pivot_longer(cols = c(1:14))
+table <- table %>% dplyr::filter(!is.na(value)) # removing nas in column value
+
+# Malignant epi - Fig. 4
+ggboxplot(table, x="name", y="value",
+          color = "black", 
+          fill = "name",
+          add = "jitter",
+          ylim = c(0, 1),
+          order = c("Malignant_epi","TAMs_SPP1+/OLR1+","Mast","TAMs_C1QC+","CAFs_MYO","CAFs_MYO_CXCL14+","CAFs_NRT","Plasma","T/NK","Schwann","Endothelial","FRCs"),
+          palette = c('#8c564b','#17becf',"#00799D","#003E51","#FFDE6C","#E5B610","#99970B","#A9FFA4","#55B24F","#FFA4C4","#59303F" ,"#B2617E") )+ RotatedAxis()
+
+# TAMs SPP1+ (Supplementary Fig.4)
+ggboxplot(table, x="name", y="value",
+          color = "black", 
+          #fill = "name",
+          add = "jitter",
+          ylim = c(-0.1, 1),
+          order = c("TAMs_SPP1+/OLR1+","Ductal_epi","Malignant_epi","Mast","CAFs_MYO","Schwann","Plasma","T/NK","Endothelial","Ductal_MUC5B+","Pericytes","Endocrine","CAFs_MYO_CXCL14+","TAMs_C1QC+","CAFs_NRT","FRCs"),
+          #palette = c('#8c564b','#17becf','darkgrey','#ad494a')
+          ) + RotatedAxis()
+
+# TAMs C1QC+ (Supplementary Fig.4)
+ggboxplot(table, x="name", y="value",
+          color = "black", 
+          #fill = "name",
+          add = "jitter",
+          ylim = c(-0.1, 1),
+          order = c("TAMs_C1QC+","T/NK","FRCs","CAFs_NRT","Plasma","Pericytes","Endothelial","CAFs_MYO","Mast","Endocrine","TAMs_SPP1+/OLR1+","Ductal_MUC5B+","CAFs_MYO_CXCL14+","Malignant_epi"),
+          ) + RotatedAxis()
+
+```
+
+# NhoodEnrichment for PDAC TLS
+```{r}
+# Min-max normalisation function
+min_max_normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+process_file <- function(filename) {
+  df <- readr::read_csv(filename)
+  df <- as.data.frame(df)
+  names(df)[1] <- "Cellclass"
+  rownames(df) <- df$Cellclass
+  df <- df[, -1]
+  return(df)
+}
+
+nhood <- c(
+  "data/import.files/PDAC_TLS_nhood/P10614_1_50um.csv",
+  "data/import.files/PDAC_TLS_nhood/P10614_3_50um.csv",
+  "data/import.files/PDAC_TLS_nhood/P10617_1_50um.csv", 
+  "data/import.files/PDAC_TLS_nhood/P10617_2_50um.csv"
+)
+
+processed.df <- lapply(nhood, process_file) #update colnames in the next section section 
+```
+
+```{r}
+processed.df[[2]] <- processed.df[[2]] %>% rename("B" = `B_MS4A1+`, "Malignant_epi" = `Malignant_epithelial`)
+label <- colnames(processed.df[[2]]) %>% as.character()
+rownames(processed.df[[2]]) <- label
+processed.df[[1]] <- processed.df[[1]] %>% rename("Endothelial_ACKR1+" = `Endothelial_ACKR1+_CCL19+`)
+label <- colnames(processed.df[[1]]) %>% as.character()
+rownames(processed.df[[1]]) <- label
+processed.df[[3]] <- processed.df[[3]] %>% rename("B" = `B_MS4A1+`, "Migratory DCs" = `DCs_LAMP3+`, "Endothelial_ACKR1+" = `Endothelial_ACKR1+_CCL19+`)
+label <- colnames(processed.df[[3]]) %>% as.character()
+rownames(processed.df[[3]]) <- label
+processed.df[[4]] <- processed.df[[4]] %>% rename("CD2+_IL7R+_TCF7+" = `CD2+_IL7R+_CCL5+`, "Lymphatic_endothelial" = `Lymphatic endothelial`)
+label <- colnames(processed.df[[4]]) %>% as.character()
+rownames(processed.df[[4]]) <- label
+```
+
+```{r}
+# Function to specify row name of interest and normalize
+process_df <- function(df, row_name) {
+  row <- df[row_name, , drop = FALSE]
+  row_normalized <- as.data.frame(t(min_max_normalize(as.numeric(row))))
+  names(row_normalized) <- names(row)
+  return(row_normalized)
+}
+
+# Specify the row name of interest
+row_name <- "B"
+
+# Apply the function to each data frame in the list
+normalized_data_list <- lapply(processed.df, function(df) process_df(df, row_name))
+
+# Plotting
+combined_df <- bind_rows(normalized_data_list)
+
+# Selecting cell classes for plotting
+table <- combined_df[, c(2:3, 5:6, 9:12, 14, 16, 18,21)]
+table <- table %>% pivot_longer(cols = c(1:12))
+table <- table %>% dplyr::filter(!is.na(value)) # removing nas in column value
+
+#B plot
+ggboxplot(table, x="name", y="value",
+          color = "black", 
+          fill = "name",
+          add = "jitter",
+          ylim = c(-0.1, 1),
+          order = c("B","CD2+_IL7R+_TCF7+","CD8A+_GZMK+_CCL5+","Migratory DCs","Plasma","TAMs_C1QC+","FRCs","Endothelial_ACKR1+", "Endothelial_VEGFC+","Endothelial","Malignant_epi", "CAFs_MYO"),
+          palette = c('#ff7f0e','#1f77b4','#023fa5','#279e68','#98df8a','#ad494a',
+                      '#979D60', '#d62728', '#d62728', '#d62728','#8c564b','#ead3c6') 
+          ) + RotatedAxis()
+          
+```
+
+# NhoodEnrichment for PDAC TLS - condense endothelial
+```{r}
+# Min-max normalisation function
+min_max_normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+process_file <- function(filename) {
+  df <- readr::read_csv(filename)
+  df <- as.data.frame(df)
+  names(df)[1] <- "Cellclass"
+  rownames(df) <- df$Cellclass
+  df <- df[, -1]
+  return(df)
+}
+
+nhood <- c(
+  "data/import.files/PDAC_TLS_condense/P10614_1_50um.csv",
+  "data/import.files/PDAC_TLS_condense/P10614_3_50um.csv",
+  "data/import.files/PDAC_TLS_condense/P10617_1_50um.csv", 
+  "data/import.files/PDAC_TLS_condense/P10617_2_50um.csv"
+)
+
+processed.df <- lapply(nhood, process_file) #update colnames in the next section section 
+```
+
+```{r}
+processed.df[[2]] <- processed.df[[2]] %>% rename("B" = `B_MS4A1+`)
+label <- colnames(processed.df[[2]]) %>% as.character()
+rownames(processed.df[[2]]) <- label
+
+processed.df[[4]] <- processed.df[[4]] %>% rename("CD2+_IL7R+_TCF7+" = `CD2+_IL7R+_CCL5+`, "TAMs_SPP1+/OLR1+" = `TAMs_OLR1+`)
+label <- colnames(processed.df[[4]]) %>% as.character()
+rownames(processed.df[[4]]) <- label
+
+processed.df[[3]] <- processed.df[[3]] %>% rename("B" = `B_MS4A1+`, "Migratory DCs" = `DCs_LAMP3+`, 
+                                                  "CAFs_MYO" = `myCAFs`, "CAFs_MYO_CXCL14+" = `myCAFs_CXCL14+`,
+                                                  "TAMs_C1QC+" = `Tam_C1QC+`, "TAMs_SPP1+/OLR1+" = `Tam_SPP1+`)
+label <- colnames(processed.df[[3]]) %>% as.character()
+rownames(processed.df[[3]]) <- label
+```
+
+```{r}
+# Function to specify row name of interest and normalize
+process_df <- function(df, row_name) {
+  row <- df[row_name, , drop = FALSE]
+  row_normalized <- as.data.frame(t(min_max_normalize(as.numeric(row))))
+  names(row_normalized) <- names(row)
+  return(row_normalized)
+}
+
+# Specify the row name of interest
+row_name <- "B"
+
+# Apply the function to each data frame in the list
+normalized_data_list <- lapply(processed.df, function(df) process_df(df, row_name))
+
+# Plotting
+combined_df <- bind_rows(normalized_data_list)
+
+# Selecting cell classes for plotting
+table <- combined_df[, c(2:3, 5:6, 9:11, 13, 15, 17, 22)]
+table <- table %>% pivot_longer(cols = c(1:11))
+table <- table %>% dplyr::filter(!is.na(value)) # removing nas in column value
+
+#B plot
+ggboxplot(table, x="name", y="value",
+          color = "black", 
+          fill = "name",
+          add = "jitter",
+          ylim = c(-0.1, 1),
+          order = c("B","CD2+_IL7R+_TCF7+","CD8A+_GZMK+_CCL5+","Migratory DCs","Plasma","TAMs_C1QC+","FRCs","Endothelial","Malignant_epi", "TAMs_SPP1+/OLR1+","CAFs_MYO"),
+          palette = c('#ff7f0e','#1f77b4','#023fa5','#279e68','#98df8a','#ad494a',
+                      '#979D60', '#d62728', '#8c564b','#17becf','#ead3c6') 
+          ) + RotatedAxis()
+          
+```
+
+# NhoodEnrichment for Breast TLS
+```{r}
+# Min-max normalisation function
+min_max_normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+process_file <- function(filename) {
+  df <- readr::read_csv(filename)
+  df <- as.data.frame(df)
+  names(df)[1] <- "Cellclass"
+  rownames(df) <- df$Cellclass
+  df <- df[, -1]
+  return(df)
+}
+
+nhood <- c(
+  "data/import.files/Breast_TLS_nhood/P3946_50um.csv",
+  "data/import.files/Breast_TLS_nhood/P3962_50um.csv",
+  "data/import.files/Breast_TLS_nhood/P4497_50um.csv", # TAMs = C1QC+, CAFs = can't match to either NRT or MYO
+  "data/import.files/Breast_TLS_nhood/P4754_50um.csv"# replace with version 2 so we can analyse T/Nk better
+)
+
+processed.df <- lapply(nhood, process_file) #update colnames in the next section section 
+```
+
+
+```{r}
+processed.df[[2]] <- processed.df[[2]] %>% rename("B" = `B_MS4A+_IGHM+`, "CD2+_IL7R+_TCF7+" = `CD4+_CCR7+`, "Mac_SIGLEC1+" = TAMs_SIGLEC1)
+label <- colnames(processed.df[[2]]) %>% as.character()
+rownames(processed.df[[2]]) <- label
+
+processed.df[[3]] <- processed.df[[3]] %>% rename("CD8+_GZMK+" = `CD8A+_CCL5+_GZMK+`)
+label <- colnames(processed.df[[3]]) %>% as.character()
+rownames(processed.df[[3]]) <- label
+
+processed.df[[4]] <- processed.df[[4]] %>% rename("CD8+_GZMK+" = `CD8A+_CCL5+_GZMK+`, "Malignant_epi" = `Malignant_epithelial`, )
+label <- colnames(processed.df[[4]]) %>% as.character()
+rownames(processed.df[[4]]) <- label
+```
+
+```{r}
+# Function to specify row name of interest and normalize
+process_df <- function(df, row_name) {
+  row <- df[row_name, , drop = FALSE]
+  row_normalized <- as.data.frame(t(min_max_normalize(as.numeric(row))))
+  names(row_normalized) <- names(row)
+  return(row_normalized)
+}
+
+# Specify the row name of interest
+row_name <- "B"
+
+# Apply the function to each data frame in the list
+normalized_data_list <- lapply(processed.df, function(df) process_df(df, row_name))
+
+# Plotting
+combined_df <- bind_rows(normalized_data_list)
+
+# Selecting cell classes for plotting
+table <- combined_df[, c(1:2, 4:5, 7, 9:10,12, 14)]
+table <- table %>% pivot_longer(cols = c(1:9))
+table <- table %>% dplyr::filter(!is.na(value)) # removing nas in column value
+
+#B plot
+ggboxplot(table, x="name", y="value",
+          color = "black", 
+          fill = "name",
+          add = "jitter",
+          ylim = c(-0.1, 1),
+          order = c("B","CD2+_IL7R+_TCF7+","CD8+_GZMK+","Mac_SIGLEC1+","Endothelial","Plasma","FRCs", "myCAFs","Malignant_epi"),
+          palette = c('#ff7f0e','#1f77b4','#023fa5', '#ad494a','#d62728','#98df8a',
+                      '#979D60','#ead3c6', '#8c564b') 
+          ) + RotatedAxis()
+          
+```
+
+
+
