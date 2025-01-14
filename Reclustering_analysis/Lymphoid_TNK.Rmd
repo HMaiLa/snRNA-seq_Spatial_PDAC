@@ -327,7 +327,6 @@ TNK.simspec.pseudobulk %>% mutate(cell_names = case_when(cluster == "1" ~ "CD3+ 
 subset <- subset(lymphoid.simspec, subset = Lv.2.Anno %in% c("CD8+ T:GZMK+", "CD8+ T:ITGAE+"))
 Idents(subset) <- "Lv.2.Anno"
 DefaultAssay(subset) <- "RNA"
-subset$Lv.2.Anno <- droplevels(subset$Lv.2.Anno)
 
 subset@meta.data$Lv.2.Anno <- as.factor(subset@meta.data$Lv.2.Anno)
 print(levels(subset@meta.data$Lv.2.Anno))
@@ -348,6 +347,11 @@ count.matrix$samples$Cluster <- as.numeric(gsub("^.*_Clst","",colnames(count.mat
 count.matrix$samples$group <- count.matrix$samples$Cluster
 count.matrix #count matrix
 
+# Filtering - having very low counts
+keep.genes <- filterByExpr(count.matrix, group=count.matrix$samples$Cluster)
+table(keep.genes) # only have 3352 genes left
+count.matrix <- count.matrix[keep.genes, , keep=FALSE]
+
 ncls <- length(table(ClusterSub))
 N <- 1:ncls #focus on all clusters
 ClstSub <- count.matrix[,count.matrix$samples$Cluster %in% N] 
@@ -363,19 +367,17 @@ plotMDS(ClstSub, pch = 16, col = lymphoid.col[ClstSub$samples$group], main="")
 #Design matrix
 Cls <- as.factor(ClstSub$samples$Cluster)
 Pat <- factor(ClstSub$samples$Patient)
-design <- model.matrix(~ Cls + Pat)
+design <- model.matrix(~0+Cls + Pat)
 
 #Estimate NB dispersion & QL dispersion
-ClstSub <- estimateDisp(ClstSub, design = design)
+ClstSub <- estimateDisp(ClstSub, design = design,robust=T)
+plotBCV(ClstSub)
 qfit <- glmQLFit(ClstSub, design)
 
-contr <- makeContrasts(
-    Cls1 = -Cls2,
-    Cls2 = Cls2,
+contr <- makeContrasts(Cls2-Cls1,
     levels=design)
 
-ctest.GZMK <- glmQLFTest(qfit, contrast=contr[,1]) 
-ctest.ITGAE <- glmQLFTest(qfit, contrast=contr[,2])
+Trm.de <- glmQLFTest(qfit, contrast=contr)
 
 #log-CPM
 prior.count <- 1
@@ -387,10 +389,8 @@ logCPM_no_batch <- removeBatchEffect(ClstSub.cpm, batch = Pat, group = Cls) # fo
 plotMDS(logCPM_no_batch, pch = 16, col = lymphoid.col[ClstSub$samples$group], main="Pseudo-bulk samples")
 
 ### Extracting data table ###
-cluster.GZMK <- ctest.GZMK$table %>% mutate(cell_names = "CD8+ T:GZMK+")
-cluster.GZMK$gene <- rownames(cluster.GZMK)
-cluster.ITGAE <- ctest.ITGAE$table %>% mutate(cluster = "CD8+ T:ITGAE+")
-cluster.ITGAE$gene <- rownames(cluster.ITGAE)
+Trm.de <- Trm.de$table
+Trm.de$gene <- rownames(Trm.de)
 ```
 
 # ORA
@@ -456,13 +456,13 @@ EnhancedVolcano(Trm, x="logFC", y="PValue",
 
 ```{r}
 library(EnhancedVolcano)
-EnhancedVolcano(cluster.ITGAE, x="logFC", y="PValue",
-    lab = cluster.ITGAE$gene,
+EnhancedVolcano(Trm.de, x="logFC", y="PValue",
+    lab = Trm.de$gene,
     title = "Differentially expressed genes in CD8+ CD103+ (TRM)",
     selectLab = features,
     FCcutoff = 0.58, pCutoff = 0.05, pointSize = 4.0,labSize =6.0,
     drawConnectors = TRUE, col = c("black","black","black", "coral3"),
-    widthConnectors = 0.5, ylim = c(-1,25), xlim = c(-4,4)
+    widthConnectors = 0.5, ylim = c(0,10), xlim = c(-4,4)
     )
 ```
 
