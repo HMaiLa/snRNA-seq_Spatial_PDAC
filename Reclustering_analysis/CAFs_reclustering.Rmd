@@ -162,7 +162,7 @@ phet <- pheatmap(t(mat),
                  cellwidth = 5, scale = "none")
 ```
 
-# Scoring all stromal subsets against known program 
+# Scoring all stromal subsets against known PDAC CAF programs
 ```{r}
 stromal <- list()
 #http://dx.doi.org/10.1016/j.cels.2016.08.011
@@ -184,7 +184,7 @@ stromal$myCAFs <- c("HOPX","IGFBP7","COL10A1","INHBA","CALD1","BGN","CTHRC1","TP
 stromal$apCAFs <- c("CD74","SAA3","SLPI", "HLA-DQA1", "HLA-DRA","HLA-DPA1")
 
 #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8404474/pdf/JEM_20210790.pdf
-stromal$FDCs <- c("CR1","CR2","MFGE8","VCAM1","CXCL13","SLC1A2","RGS9","MATN2","VCAM1")
+stromal$FDCs <- c("CR1","CR2","MFGE8","VCAM1","CXCL13","SLC1A2","RGS9","MATN2")
 stromal$FRCs <- c("PDGFRA","PDPN","LTBR","VCAM1","TNFSF14","IL1R1") 
 
 table(stromal.subsets$Lv.3.Anno)

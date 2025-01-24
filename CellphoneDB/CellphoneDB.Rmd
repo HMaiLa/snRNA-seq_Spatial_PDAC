@@ -8,7 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # Installing packages
-```{r cars}
+```{r}
 library(Seurat)
 library(schex)
 library(ggplot2)
@@ -26,8 +26,7 @@ sts.simspec.seurat <- readRDS("../sts.simspec_css.sample.sct.Aug24.RDS")
 DefaultAssay(sts.simspec.seurat) <- "RNA"
 sts.simspec.seurat <- DietSeurat(sts.simspec.seurat, assays = "RNA", data = TRUE, counts = TRUE)
 
-# to remove additional columns & because we need to split individual samples and redo the SCT, so we need to remove the "^_SCT"
-colnames(sts.simspec.seurat[[]]) #check which columns to remove
+colnames(sts.simspec.seurat[[]]) 
 sts.simspec.seurat[["nCount_SCT"]] <- NULL
 sts.simspec.seurat[["nFeature_SCT"]] <- NULL
 sts.simspec.seurat[["seurat_clusters"]] <- NULL
@@ -71,22 +70,22 @@ saveRDS(sts.seurat, file = "../sts.seurat.simspec.small.RDS")
 
 # Codes run in python
 ```{r}
-cellphonedb method statistical_analysis \
-sts.final.tsv \
-sts_counts.tsv \
---counts-data hgnc_symbol \
---threads 30  \
---output-path sts.simspec.small.out/
+#cellphonedb method statistical_analysis \
+#sts.final.tsv \
+#sts_counts.tsv \
+#--counts-data hgnc_symbol \
+#--threads 30  \
+#--output-path sts.simspec.small.out/
 ```
 
 # Loading CellphoneDB results
 ```{r}
 library(ktplots)
 # Importing results
-pvals <- read.delim("~/CellphoneDB/sts.simspec.small.out/pvalues.txt", check.names = FALSE)
-means <- read.delim("~/CellphoneDB/sts.simspec.small.out/means.txt", check.names = FALSE)
-deconvoluted <- read.delim("~/CellphoneDB/sts.simspec.small.out/deconvoluted.txt", check.names = FALSE)
-sig.means <- read.delim("~/CellphoneDB/sts.simspec.small.out/significant_means.txt", check.names = FALSE)
+pvals <- read.delim("~/CellphoneDB/sts.simspec.small.Oct24.out/pvalues.txt", check.names = FALSE)
+means <- read.delim("~/CellphoneDB/sts.simspec.small.Oct24.out/means.txt", check.names = FALSE)
+deconvoluted <- read.delim("~/CellphoneDB/sts.simspec.small.Oct24.out/deconvoluted.txt", check.names = FALSE)
+sig.means <- read.delim("~/CellphoneDB/sts.simspec.small.Oct24.out/significant_means.txt", check.names = FALSE)
 
 # filter the list containing interaction pair with collagen
 means.filtered <- means[!grepl("COL*.", means$gene_a), ]
@@ -98,7 +97,7 @@ sts.seurat.small <- readRDS("../sts.seurat.simspec.small.RDS")
 ```
 
 # Example PLOTTING
-## Tuft & ADM
+## Tuft & ADM - SupFig 2d
 ```{r}
 plot_cpdb(cell_type1 = 'Tuft', 
                cell_type2 = 'Acinar-Ductal|Ductal MUC5B+|PDAC',
@@ -106,13 +105,55 @@ plot_cpdb(cell_type1 = 'Tuft',
                idents = 'Lv.2.Anno', 
 	             means = means.filtered, 
                pvals = pvals.filtered,
-               #gene.family =  c( "chemokines","costimulatory"),
                genes = c("BDNF","FGF2","NTRK2","TNFRSF10A","LGALS9","MDK","MST1","WNT9A","NRG3","SEMA3C"), # these are molecules expressed by Tuft
 	             highlight = "black", highlight_size = 0.5,
                keep_significant_only = T) +
 small_axis(fontsize =10) + small_grid() + small_guide() + small_legend(fontsize = 5, keysize = 0.6) 
 ```
 
+## TAMs vs PDAC - SupFig 4g
+```{r}
+plot_cpdb(cell_type1 ='TAMs_SPP1+|TAMs_OLR1+', 
+          cell_type2 = 'PDAC', 
+          scdata = sts.seurat.small,
+	        idents = 'Lv.2.Anno', 
+	        means = means.filtered, 
+          pvals = pvals.filtered,
+          genes = c("TGFB1","WNT5A","IGFBP3","FGF7","TGFB3","IL10","IFNB1","GRN","LGALS9","HAVCR2","HBEGF","MERTK","LILRB2","TGFB1","NRP2","SPP1"), 
+	        highlight = "black", highlight_size = 0.5,
+          keep_significant_only = T) +
+small_axis(fontsize =10) + small_grid() + small_guide() + small_legend(fontsize = 5, keysize = 0.6) 
+```
+
+## APCs vs CD4+/CD8+
+```{r}
+plot_cpdb(cell_type1 ='TAMs_HLA+|Migratory DCs|cDC1|cDC2', 
+          cell_type2 = 'CD8+ T:GZMK+|NK|CD8+ T:ITGAE+|CD8+ T:IL7R+', 
+          scdata = sts.seurat.small,
+	        idents = 'Lv.2.Anno',
+	        means = means.filtered, 
+          pvals = pvals.filtered,
+          genes = c("CCL22","CD40","FLT3","LTBR","LGALS9","ICAM1","TGFB1","CD94","KLRC1","KLRC2","CCL3","CXCR6","CD226","CD2","IL18","CD28","TIGIT"),
+	        highlight = "black", highlight_size = 0.5,
+          keep_significant_only = T) +
+small_axis(fontsize =10) + small_grid() + small_guide() + small_legend(fontsize = 5, keysize = 0.6) # some helper functions included in ktplots to help wit
+```
+
+## TIGIT/CD226 network
+```{r}
+plot_cpdb(cell_type1 ='Tuft|Tuft.persistent|PDAC',
+          cell_type2 = 'CD8+ T:GZMK+|NK|CD8+ T:ITGAE+|CD8+ T:IL7R+',
+          scdata = sts.seurat.small,
+	        idents = 'Lv.2.Anno', 
+	        means = means.filtered, 
+          pvals = pvals.filtered,
+          genes = c("TIGIT","CD96","PVR","CD226"), 
+	        highlight = "black", highlight_size = 0.5,
+          keep_significant_only = T) +
+small_axis(fontsize =10) + small_grid() + small_guide() + small_legend(fontsize = 5, keysize = 0.6) 
+```
+
+# Alternative visualisation
 ```{r}
 # to focus on key interactions to plot
 ddata <- as.data.frame(d[["data"]])
@@ -135,12 +176,6 @@ sum(is.na(mat))
 
 library(pheatmap)
 library(viridisLite)
-col <- rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu"))
-
-paletteLength <- 30
-col <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(paletteLength)
-myBreaks <- c(seq(min(mat), 0, length.out=ceiling(paletteLength/2) + 1), 
-              seq(max(mat)/paletteLength, max(mat), length.out=floor(paletteLength/2)))
 
 phet <- pheatmap(mat, color = viridis(n=50),
                  fontsize = 12,cellheight = 10,border_color = T, 

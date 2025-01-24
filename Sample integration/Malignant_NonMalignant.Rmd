@@ -492,16 +492,16 @@ DimPlot(sts.non.malignant, group.by = "simspec_cell_class", label = T, repel = T
 ```{r}
 metadata <- sts.non.malignant@meta.data %>% as.data.frame() #Creating a data frame called metadata
 metadata$S_CB <- rownames(metadata)#Assigning S_CB as a new column (CB=cell barcode)
-metadata %>% mutate(Lv.1.Anno = case_when(SCT_snn_res.0.7 %in% c("1","19","17","20","27","28") ~ "Myeloid", #check
-                                          SCT_snn_res.0.7 %in% c("0","3","25") ~ "CAFs", #check
-                                          SCT_snn_res.0.7 == "14" ~ "Pericytes", #check
-                                          SCT_snn_res.0.7 == "24" ~ "FRCs", #check
-                                          SCT_snn_res.0.7 == "8" ~ "Endothelial", #check
-                                          SCT_snn_res.0.7 == "23" ~ "Mast", #check
-                                          SCT_snn_res.0.7 == "15" ~ "Plasma",#check
-                                          SCT_snn_res.0.7 == "21" ~ "Tuft", #check
-                                          SCT_snn_res.0.7 %in% c("4","5") ~ "Ductal epithelial", #check
-                                          SCT_snn_res.0.7 == "18" ~ "Ductal MUC5B+",#check
+metadata %>% mutate(Lv.1.Anno = case_when(SCT_snn_res.0.7 %in% c("1","19","17","20","27","28") ~ "Myeloid", 
+                                          SCT_snn_res.0.7 %in% c("0","3","25") ~ "CAFs", 
+                                          SCT_snn_res.0.7 == "14" ~ "Pericytes", 
+                                          SCT_snn_res.0.7 == "24" ~ "FRCs", 
+                                          SCT_snn_res.0.7 == "8" ~ "Endothelial", 
+                                          SCT_snn_res.0.7 == "23" ~ "Mast", 
+                                          SCT_snn_res.0.7 == "15" ~ "Plasma"
+                                          SCT_snn_res.0.7 == "21" ~ "Tuft", 
+                                          SCT_snn_res.0.7 %in% c("4","5") ~ "Ductal epithelial", 
+                                          SCT_snn_res.0.7 == "18" ~ "Ductal MUC5B+",
                                           SCT_snn_res.0.7 == "9" ~ "Acinar",
                                           SCT_snn_res.0.7 %in% c("6","7","10") ~ "Endocrine",
                                           SCT_snn_res.0.7 %in% c("2","11","12","16","22","26") ~ "Lymphoid", 
@@ -516,4 +516,112 @@ names(Lv.1.Anno) <- metadata$S_CB
 sts.non.malignant <- AddMetaData(object = sts.non.malignant, metadata = Lv.1.Anno, col.name = "Lv.1.Anno")
 DimPlot(sts.non.malignant, group.by = "Lv.1.Anno") + DimPlot(sts.non.malignant, group.by = "cell_class")
 saveRDS(sts.non.malignant, file = here(objects.path, "sts.nonmalignant.RDS"))
+```
+
+# VISUALISATION
+```{r}
+col <- c('#ff7f0e',"#C8AF7C",'#aa40fc','#d5eae7', 
+         '#279e68','#e377c2','#d62728','#17becf','#8c564b',
+         '#ff9896', '#98df8a','#ffbb78', '#1f77b4',
+         "#979D60","#6E33E0" ,"#D5DB46"
+         )
+
+color <- setNames(object = col, nm=c("Acinar","Malignant acinar","B","CAFs",
+           "Ductal_epithelial", "Endocrine","Endothelial","Macrophages","PDAC",
+           "Mast","Plasma","Pericytes","T/NK",
+           "FRCs","Tuft","PDA_OLGC"))
+
+pat.col <- c("#6DE8B7","#D741E1","#B4E1CF","#DEB8E0","#DD4A8C","#7F9F32","#C3EAB4" ,"#7B67E0" ,"#D8E746" ,"#CEE982" ,"#DE73DA" ,"#92A36F" ,
+             "#E1A497" ,"#E76356" ,"#62A4DB", "#D79655" ,"#8966AA", 
+             "#6EE9E7","#E4C751" ,"#E7E3DA" ,"#E08FC1" ,"#8D747A") 
+
+pat.color <- setNames(object = pat.col, nm=c("ICGC_0017", "ICGC_0020", "ICGC_0021", "ICGC_0026", "ICGC_0033", "ICGC_0034", "ICGC_0043", "ICGC_0051", "ICGC_0053", "ICGC_0061", "ICGC_0066", "ICGC_0067", 
+                                             "ICGC_0087", "ICGC_0103", "ICGC_0105", "ICGC_0115", "ICGC_0203", 
+                                             "ICGC_0215", "ICGC_0235", "ICGC_0304", "ICGC_0415"))
+```
+
+## Fig1 
+```{r}
+# Reorder the level for cellular composition
+sts.simspec.final$simspec_cell_class <- factor(sts.simspec.final$simspec_cell_class, levels = c("Acinar","Ductal_epithelial","Tuft",
+                                                                                             "Malignant acinar","PDA_OLGC","PDAC",
+                                                                                            "Endocrine","Endothelial","CAFs","Pericytes","FRCs",
+                                                                                            "Macrophages","Mast","B","Plasma","T/NK"
+                                                                                            )) 
+
+Idents(sts.simspec.final) <- "simspec_cell_class"
+
+# Fig 1B
+DimPlot(sts.simspec.final, group.by = "simspec_cell_class", raster = F, cols = color, pt.size = 0.1) 
+
+# Fig 1D
+marker.sets <- list(Malignant_PDAC = c("KRT19","KRT7","MUC1","TFF1","TFF2"),
+                    Ductal_like_2 = c("MUC5B","MUC6","ONECUT2","CFTR","SLC4A4"),
+                    Acinar_Cells = c("REG3G","REG3A","AMY2A","CPB1","CTRC","CELA3A"),
+                    Pericytes = c("PDGFRB","RGS5","GJC1","TRPC6"),
+                    Fibroblasts = c("CALD1","COL1A1","FN1", "COL6A3","COL11A1"),
+                    Islet_Cells = c("GCG","SST","INS"),
+                    Endothelial_Cells = c("VWF","PLVAP","KDR"),
+                    B_Cells = c("MS4A1","CD19","IGHM"),
+                    Plasma_Cells = c("IGHG1","MZB1"),
+                    T_Cells = c("CD3D","CD3E","CD96","CD2"), #revised
+                    Mast_Cells = c("CPA3", "MS4A2","KIT"),
+                    Macrophages = c("CD163", "CSF1R","SIGLEC1"))
+
+sts.seurat <- sts.simspec.final %>% subset(subset = simspec_cell_class %in% c("Tuft","FRCs","PDA_OLGC","Malignant acinar"), invert=T) # removed rare cancer types
+sts.seurat$simspec_cell_class <- factor(sts.seurat$simspec_cell_class, levels = c("Macrophages","Mast","T/NK", "Plasma","B","Endothelial","Endocrine",
+                        "CAFs","Pericytes","Acinar","Ductal_epithelial","PDAC"))
+Idents(sts.seurat) <- "simspec_cell_class"
+
+DefaultAssay(sts.seurat) <- "RNA"
+
+# Using dotplot to help generate average expression matrix for heatmap plotting
+d <- DotPlot(sts.seurat, features = marker.sets, group.by = "simspec_cell_class", col.max = Inf) 
+ddata <- as.data.frame(d[["data"]])
+ddata <- ddata %>% filter(!is.na(features.plot)) 
+df_spread <- tidyr::spread(ddata[,c(3,4,5)], id, avg.exp.scaled)
+rownames(df_spread) <- df_spread[,1]
+df_spread <- df_spread[,-1]
+mat <- as.matrix(df_spread) #confirmed rowsum is equal to 0
+
+library(pheatmap)
+library(viridisLite)
+phet <- pheatmap(mat, 
+                 color = inferno(n=100), breaks=seq(0,2,length.out=101), # set scale to keep it consistent with Xenium analysis
+                 fontsize = 9,
+                 cellheight = 9,
+                 border_color = 'lightgrey',
+                 fontsize_row = 9, cutree_cols = 1, cutree_rows =1,
+                 cellwidth = 9, scale = "none",
+                 cluster_rows = F, cluster_cols = F)
+
+# Fig 1E
+sts.simspec.final@meta.data %>%
+  ggplot(aes(x=ICGC_ID, fill = simspec_cell_class)) + 
+  geom_bar(position = "fill") + 
+  scale_fill_manual(values = color) + RotatedAxis()
+
+# SUP Fig 1A 
+marker.sets <- list(Malignant_PDAC = c("KRT19","MUC1","KRT17","ACTN4","LMO7"),
+                    Malignant_PDA_Osteoclast = c("DLX5","OMD","CA2"),#,"CTGF"
+                    Malignant_Acinar = c("CPA1","CPA2","PRSS1","RBPJL","CEL","REG1A","REG1B","REG3G"), # with additional verification from inferCNV analysis
+                    Acinar_Cells = c("CPB1","CELA3A","CTRC","PNLIP","PDIA2"),
+                    Epithelium_Duct_Cells = c("CFTR","SLC4A4","PKHD1","ONECUT2","C6","CRP","MUC5B"),
+                    Tuft_Cells = c("TRPM5","POU2F3","AVIL","BMX","SH2D7"),
+                    Islet_Cells = c("INS","GCG","NRG1","KCNMB2","SNTG1"),
+                    Quiescent_stellates = c("PDGFRB","RGS5","TRPC6","PLXDC1","GJC1"),
+                    Fibroblasts = c("COL1A1","CALD1", "COL6A3","COL1A2","FN1"),
+                    Fibroblastic_reticular = c("HAS1","PDPN","PLA2G2A","RAB7B","DAW1"),
+                    Endothelial_Cells = c("VWF","CD34","EFNB2","PLVAP","FLT1"),
+                    B_Cells = c("FCRL1","MS4A1","PAX5"),
+                    Plasma_Cells = c("MZB1","SPAG4","PDK1","IGHG1"),
+                    T_Cells = c("CD3D","CD3E","CD96","CD2","CD247"), 
+                    Mast_Cells = c("TPSAB1", "CPA3", "MS4A2","HPGDS","KIT"),
+                    Macrophages = c("CSF1R","SIGLEC1", "CD163", "MS4A6A"))
+
+library(viridis)
+DotPlot(sts.simspec.final, features = marker.sets) +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_colour_viridis(option="magma") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white"))) + RotatedAxis()
 ```

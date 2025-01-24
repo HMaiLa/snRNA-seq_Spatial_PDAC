@@ -95,7 +95,7 @@ saveRDS(tuft.merged, file= here(objects.path, "tuft.merged.RDS"))
 ## Reclustered of Tuft based on 4 ADM samples only
 ```{r}
 tuft.merged <- subset(tuft.merged, subset = Patient_c %in% c("4Pats","2925"), invert = T)
-table(tuft$Patient_ID)
+table(tuft.merged$Patient_ID)
 
 # FindMarkers 
 Idents(tuft.merged) <- "Lv.2.Anno"
@@ -231,7 +231,6 @@ adm.cellnames.pseudobulk %>% mutate(cell_names = case_when(
 write.csv(adm.cellnames.pseudobulk, file = here(data.path, "Supplmentary_Table_3.csv", row.names = F))
 ```
 
-
 # PAGA analysis
 ## ADM process in ADM samples - PAGA analysis
 ```{r}
@@ -286,3 +285,5 @@ Idents(ADM) <- "Lv.2.Anno"
 DefaultAssay(ADM) <- "RNA"
 DotPlot(ADM, features = genes, group.by = "Lv.2.Anno") + RotatedAxis() + scale_color_gradient2(low="darkblue", mid = "white", high = "darkred")
 ```
+
+

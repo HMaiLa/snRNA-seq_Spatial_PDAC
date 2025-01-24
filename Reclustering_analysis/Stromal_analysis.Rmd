@@ -197,3 +197,76 @@ hallmark <- compareCluster(
   TERM2GENE = Hallmark.entrez)
 dotplot(hallmark, font.size = 12, showCategory =6, title = "Hallmark | pseudobulk RNA assay | logFC > 1.5")  + RotatedAxis() + scale_colour_gradient(low="midnightblue", high = "grey") 
 ```
+
+#### Scoring all all stromal subsets against known PDAC CAF programs 
+```{r}
+stromal <- list()
+stromal$quiescent.stellates <- c("PDGFRB","SPARC","GJA4","CSPG4","EDNRB","RGS5","COL4A1")
+stromal$activated.stellates <- c("COL1A1","FN1","THY1","LUM","TIMP1","MMP2")
+stromal$immune.activated.stellates <- c("CXCL8","INHBA","FGF2","IL6","CSF3", "CXCL3","IL33")
+stromal$Schwann.cells <-c("SOX10", "S100B" ,"CRYAB","NGFR","PLP1","PMP22")
+
+stromal$MYO <-c("ADAMTS12","CASC15","POSTN","NTM","LINC01429","NREP","PDGFC","LEF1","NUAK1","COL1A1","KIF26B")
+stromal$NRT <- c("SCN7A","NFIA","C7","PID1","C1orf21","MAMDC2","CLMN","PREX2","MTUS1","ADAMTS9-AS2","KCNIP1","LAMA2")
+stromal$ADH.F <- c("NFATC2","EMP1","MIR222HG","SAMD4A","LMNA","GPRC5A","MMP19","MEDAG","NFATC1","TSC22D2") 
+stromal$IMM <- c("SLC22A3", "XKR4","ANKRD29","SLCO2B1","LAMA3","ABCC3","LAMC2","GRIN2B","RBM47","NOL4")
+
+stromal$iCAFs <- c("PLA2G2A","MCL1","S100A10","S100A4","LMNA","UAP1","DPT","ABL2","EFEMP1","TNFAIP6","FBLN2","CCDC80","FSTL1","PTX3","UGDH","IL8","CXCL1","CXCL2","ADH1B","CPE")
+stromal$myCAFs <- c("HOPX","IGFBP7","COL10A1","INHBA","CALD1","BGN","CTHRC1","TPM2","ACTA2","TAGLN","POSTN","TPM1","GRP","CST1","MYL9","MMP11")
+stromal$apCAFs <- c("CD74","SAA3","SLPI", "HLA-DQA1", "HLA-DRA","HLA-DPA1")
+
+#https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8404474/pdf/JEM_20210790.pdf
+stromal$FDCs <- c("CR1","CR2","MFGE8","VCAM1","CXCL13","SLC1A2","RGS9","MATN2","VCAM1")
+stromal$FRCs <- c("PDGFRA","PDPN","LTBR","IL1R1","GPRC5A","HAS1","CFB") # used combined genes from the study plus genes from PC12 
+
+# doi: 10.1158/2159-8290.CD-19-0644. Epub 2019 Nov 7.
+stromal$LRRC15 <- c("COL11A1","LRRC15","TAGLN","ACTA2","MMP11","FZD1","INHBA","COL8A1","SDC1")
+stromal$IL1 <- c("HAS1","HAS2","MAFF","CCL2","CXCL1","LIF","IL6","IL1R1")
+stromal$eCAFs <- c("C7","CFD","PTGDS","ENG","TIMP1")
+
+DimPlot(stromal.subsets, group.by = "Lv.3.Anno")
+
+DefaultAssay(stromal.subsets) <- "RNA"
+Idents(stromal.subsets) <- "Lv.3.Anno"
+library(UCell)
+stromal.subsets <- AddModuleScore_UCell(stromal.subsets,
+                                 features = stromal,
+                                 assay="RNA", slot = "data")
+stromal.markers.names <- paste0(names(stromal),"_UCell") 
+
+FeaturePlot(stromal.subsets, 
+            features = stromal.markers.names, 
+            max.cutoff = "q99", # q## indicates quantile 
+            ncol = 2,
+            cols = c("lightgrey", "darkred"),
+            keep.scale = "all") # to apply the same scale
+
+# Plotting/visualisation
+VlnPlot(stromal.subsets, features = stromal.markers.names, cols = stromal.color)
+d <- DotPlot(stromal.subsets, features = stromal.markers.names, scale = F) + RotatedAxis()
+
+ddata <- as.data.frame(d[["data"]])
+df_spread <- tidyr::spread(ddata[,c(1,3,4)], id, avg.exp) # use non-scale to show 
+df_spread <- na.omit(df_spread)
+rownames(df_spread) <- df_spread[,1]
+df_spread <- df_spread[,-1]
+mat <- as.matrix(df_spread)
+sum(is.infinite(mat)) # to test that there are no infinite values
+sum(is.na(mat))
+
+library(pheatmap)
+library(viridisLite)
+#col <- rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu"))
+phet <- pheatmap(mat, 
+                 #color = colorRampPalette(c("white","darkred"))(100), 
+                 color = mako(n=14),
+                 fontsize = 15,
+                 cellheight = 15, 
+                 cluster_cols = T,
+                 border_color = "grey", 
+                 fontsize_row = 12, cutree_cols = 1, cutree_rows = 3,
+                 cellwidth = 15, scale = "none")
+```{r}
+
+```
+

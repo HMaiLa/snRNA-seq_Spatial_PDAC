@@ -44,6 +44,9 @@ DimPlot(fib,
 
 DimHeatmap(sts.non.malignant, dims = 1:12, cells=500, balanced = T) # PC = 12
 
+# Sup Fig 3e
+# these genes are obtained from flow sorted stromal cells from secondary lymphoid structure: #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8404474/pdf/JEM_20210790.pdf
+VlnPlot(subset(sts.non.malignant, subset = Lv.1.Anno %in% c("CAFs","FRCs","FDCs")), features = c("CR1","CR2","CXCL13","VCAM1","TNFSF14","IGF1","PDGFRA","PDPN","HAS1"), group.by = "Lv.1.Anno",cols = stromal.color, ncol=3)
 ```
 
 ## Transcriptome differences
@@ -100,7 +103,6 @@ plotMDS(ClstSub, pch = 16, col = fib.col[ClstSub$samples$group], main="")
 #Design matrix
 Cls <- as.factor(ClstSub$samples$Cluster)
 Pat <- factor(ClstSub$samples$Patient)
-#design <- model.matrix(~Cls+Pat)
 design <- model.matrix(~0+Cls+Pat)
 
 colnames(design) <- gsub("patient","",colnames(design))
