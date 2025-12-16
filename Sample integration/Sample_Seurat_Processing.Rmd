@@ -173,7 +173,7 @@ FeaturePlot(sts.seurat, features = "subsets_mito_percent", reduction = "umap", r
 clustree(sts.seurat, prefix = "SCT_snn_res.")
 ```
 
-# Manual annotation based on marker gene expression
+# Marker gene expression
 ```{r}
 DefaultAssay(sts.seurat) <- "RNA"
 marker.sets <- list(Malignant_PDAC = c("KRT19","MUC1","KRT17","ACTN4","LMO7"),

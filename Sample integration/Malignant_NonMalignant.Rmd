@@ -69,11 +69,11 @@ colnames(genomeBoundaries) <- c("chromosome", "end", "start")
 
 # Import WGS results for P2992 
 wgs_2992 <- read.csv("../apgi_wgs_cnv/apgi_2992/APGI_2992__ICGC_0235_T.purple.segment.tsv", header = TRUE, sep = "")
-wgs_2992 <- wgs_2992 %>% dplyr::filter(germlineStatus %in% c("AMPLIFICATION","DIPLOID", "HET_DELETION",  "HOM_DELETION"))
-wgs.2992 <- wgs_2992 %>% dplyr::select(chromosome, start, end, refNormalisedCopyNumber)
-colnames(wgs.2992) <- c("chromosome","start","end","segmean")
-wgs.2992$sample <- "2992"
-wgs.2992 <- wgs.2992 %>% select(sample, everything())
+wgs.2992 <- wgs_2992 %>%
+  dplyr::select(chromosome, start, end, refNormalisedCopyNumber) %>%
+  dplyr::rename(segmean = refNormalisedCopyNumber) %>%
+  dplyr::mutate(sample = "WGS2992") %>%
+  dplyr::select(sample, everything())
 cnSpec(wgs.2992, y=genomeBoundaries)
 ```
 
