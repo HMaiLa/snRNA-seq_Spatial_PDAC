@@ -1,6 +1,5 @@
 ---
 title: "CellChat Analysis"
-author: "Mai La"
 ---
 
 # CELLCHAT - Lv.1.Anno
@@ -17,7 +16,7 @@ options(future.globals.maxSize = 8000 * 1024^2)
 ## Create input files 
 Ref: https://htmlpreview.github.io/?https://github.com/jinworks/CellChat/blob/master/tutorial/CellChat-vignette.html#infer-the-cell-cell-communication-at-a-signaling-pathway-level
 ```{r}
-sts.simspec.final <- readRDS("~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/sts.simspec.final.RDS")
+sts.simspec.final <- readRDS("../sts.simspec.final.RDS")
 DefaultAssay(sts.simspec.final) <- "RNA"
 Idents(sts.simspec.final) <- "Lv.1.Anno"
 sts.simspec.final <- subset(sts.simspec.final, subset = Lv.1.Anno %in% c("Stromal (rare subtypes)", "unassigned","PDA_OLGC"), invert=T)
@@ -37,22 +36,23 @@ cellchat <- identifyOverExpressedInteractions(cellchat)
 cellchat <- computeCommunProb(cellchat, type = "truncatedMean", trim = 0.15) # produce fewer interactions but still detecting strong interaction, trim=0.15 mean 15% of cell express
 ```
 
-## TO EXAMINE PVR 
+## TO EXAMINE PVR in all cells in PDAC
 ```{r}
+# CIRCLE PLOT - FIG 3E
 pathways.show <- c("PVR")
-# CIRCLE PLOT - FIG 2E
 par(mfrow=c(1,1))
 netVisual_aggregate(cellchat, signaling = pathways.show, layout = "circle")
-saveRDS(cellchat, file = "~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/cellchat_Lv.1_rerun.RDS")
+#saveRDS(cellchat, file = "~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/cellchat_Lv.1_rerun.RDS")
 ```
 
+## Unbiased signalling network analysis
 ```{r}
 ptm = Sys.time()
 cellchat <- computeCommunProbPathway(cellchat)
 # Compute the network centrality scores
-cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP") # Visualize the computed centrality scores using heatmap, allowing ready identification of major signaling roles of cell groups
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
 
-# PVR SIGNALLING PATHWAY NETWORK - FIG 2F
+# PVR SIGNALLING PATHWAY NETWORK - FIG 3F
 netAnalysis_signalingRole_network(cellchat, signaling = pathways.show, width = 15, height = 2.5, font.size =6)
 ```
 
@@ -66,7 +66,7 @@ sts.seurat <- subset(sts.simspec.final, downsample=500) # downsample parameter h
 
 ## Creating CellChat object
 ```{r}
-cellchat <- createCellChat(object = sts.seurat, group.by = "Lv.2.Anno", assay = "RNA") # require lognormalise data
+cellchat <- createCellChat(object = sts.seurat, group.by = "Lv.2.Anno", assay = "RNA")
 cellchat@DB <- CellChatDB.human
 showDatabaseCategory(cellchat@DB)
 
@@ -90,7 +90,7 @@ groupSize <- as.numeric(table(cellchat@idents))
 
 ### Tumour vs TAMs_SPP1_OLR1
 ```{r}
-# Fig 3h
+# Fig 3g
 df.net <- subsetCommunication(cellchat, sources.use = c("TAMs_SPP1+","TAMs_OLR1+"), targets.use = c("PDAC")) 
 df.net <- df.net %>% dplyr::filter(!grepl("COLLAGEN|LAMININ|SEMA3|SEMA4", pathway_name, ignore.case=TRUE))
 
@@ -99,8 +99,7 @@ netVisual_bubble(cellchat, sources.use = c("TAMs_SPP1+","TAMs_OLR1+"), targets.u
                  remove.isolate = FALSE)
 ```
 
-```{r}
-### Tumour vs TAMs_SPP1_OLR1
+### Tuft vs PDAC Ductal MUC5B
 ```{r}
 # Fig 3h
 df.net <- subsetCommunication(cellchat, sources.use = c("Tuft"), targets.use = c("Ductal MUC5B+","PDAC")) 
@@ -111,30 +110,7 @@ netVisual_bubble(cellchat, sources.use = c("Tuft"), targets.use = c("Ductal MUC5
                  remove.isolate = FALSE)
 ```
 
-```
-
-```{r}
-NRT <- subsetCellChat(
-  cellchat,
-  cells.use = NULL,
-  idents.use = c("TAMs_SPP1+","TAMs_OLR1+","NK","Tuft","CD8+ T:ITGAE+","PDAC"),
-  group.by = NULL,
-  invert = FALSE,
-  thresh = 0.05
-)
-
-df.net <- subsetCommunication(cellchat, sources.use = c("TAMs_SPP1+","TAMs_OLR1+","NK","Tuft","CD8+ T:ITGAE+"), targets.use = c("PDAC")) 
-df.net <- df.net %>% dplyr::filter(!grepl("COLLAGEN|LAMININ|SEMA3|SEMA4", pathway_name, ignore.case=TRUE))
-
-netVisual_bubble(cellchat, sources.use = c("TAMs_SPP1+","TAMs_OLR1+","NK","Tuft"), targets.use = "PDAC",
-                 signaling = c("TGFb","ACTIVIN","EGF","SPP1","GRN","CADM","APP","GALECTIN","PARs","MK","CEACAM"),
-                 remove.isolate = FALSE)
-
-pathways.show = c("PARs","CD96")
-netVisual_individual(NRT, signaling = pathways.show, layout = "circle")
-```
-
-## CAFs_NRT_TAMsC1QC_MHCII_Lymphoids
+### CAFs_NRT_TAMsC1QC_MHCII_Lymphoids
 ```{r}
 # Fig 4g
 NRT <- subsetCellChat(
@@ -149,31 +125,12 @@ NRT <- subsetCellChat(
 df <- subsetCommunication(NRT)
 df <- df %>% dplyr::filter(!grepl("COLLAGEN|LAMININ|SEMA3|SEMA4", pathway_name, ignore.case=TRUE))
 
+# FIG 5F
 pathways.show = "CD80"
 netVisual_individual(NRT, signaling = pathways.show, layout = "circle") 
 
 pathways.show = "CD86"
 netVisual_individual(NRT, signaling = pathways.show, layout = "circle")
-```
-
-### TILs
-```{r}
-# Fig 5f
-TIL <- subsetCellChat(
-  cellchat,
-  cells.use = NULL,
-  idents.use = c("Migratory DCs","CD4+ T:IL7R+","CD4+ T:FOXP3+", "CD8+ T:GZMK+", "CD8+ T:ITGAE+", "CD3+ T", "NK", "PDAC","TAMs_C1QC+", "TAMs_HLA+", "cDC1"), 
-  group.by = NULL,
-  invert = FALSE,
-  thresh = 0.05
-)
-
-df <- subsetCommunication(NRT)
-df <- df %>% dplyr::filter(!grepl("COLLAGEN|LAMININ|SEMA3|SEMA4", pathway_name, ignore.case=TRUE))
-
-netVisual_bubble(TIL, sources.use = c("PDAC"), targets.use = "CD8+ T:ITGAE+" , remove.isolate = FALSE) # Not much except PVR-CD226
-pathways.show = c("PVR")
-netVisual_individual(TIL, signaling = pathways.show, layout = "circle") 
 ```
 
 ### TLS 
