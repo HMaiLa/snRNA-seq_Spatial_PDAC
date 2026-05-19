@@ -25,11 +25,11 @@ sts.seurat <- subset(sts.simspec.final, downsample=500) # downsample parameter h
 
 ## Creating CellChat object
 ```{r}
-cellchat <- createCellChat(object = sts.seurat, group.by = "Lv.1.Anno", assay = "RNA") # require lognormalise data
+cellchat <- createCellChat(object = sts.seurat, group.by = "Lv.1.Anno", assay = "RNA") 
 cellchat@DB <- CellChatDB.human
 
 # Preprocessing the expression data for cell-cell communication
-cellchat <- subsetData(cellchat, features = NULL) # This step is necessary even if using the whole database
+cellchat <- subsetData(cellchat, features = NULL) 
 future::plan("multisession", workers = 20) # do parallel
 cellchat <- identifyOverExpressedGenes(cellchat)
 cellchat <- identifyOverExpressedInteractions(cellchat)
@@ -42,7 +42,6 @@ cellchat <- computeCommunProb(cellchat, type = "truncatedMean", trim = 0.15) # p
 pathways.show <- c("PVR")
 par(mfrow=c(1,1))
 netVisual_aggregate(cellchat, signaling = pathways.show, layout = "circle")
-#saveRDS(cellchat, file = "~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/cellchat_Lv.1_rerun.RDS")
 ```
 
 ## Unbiased signalling network analysis
@@ -71,11 +70,10 @@ cellchat@DB <- CellChatDB.human
 showDatabaseCategory(cellchat@DB)
 
 # Preprocessing
-cellchat <- subsetData(cellchat, features = NULL) # This step is necessary even if using the whole database
+cellchat <- subsetData(cellchat, features = NULL) 
 future::plan("multisession", workers = 10) # do parallel
 cellchat <- identifyOverExpressedGenes(cellchat)
 cellchat <- identifyOverExpressedInteractions(cellchat)
-saveRDS(cellchat, file = "~/projects/PDAC_non_malignant_cell_types/output/cellbender/Aug24_objects/cellchat_Lv.2_rerun.RDS")
 ```
 
 ## Infer cell-cell communication network
